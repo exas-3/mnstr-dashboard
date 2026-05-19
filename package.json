@@ -1,0 +1,41 @@
+{
+  "name": "mnstr-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3004",
+    "build": "next build",
+    "start": "next start --port 3004",
+    "poller": "tsx scripts/index.ts poll",
+    "cli": "tsx scripts/index.ts",
+    "backfill": "tsx scripts/index.ts backfill",
+    "reindex": "tsx scripts/index.ts reindex",
+    "backfill-sellbacks": "tsx scripts/index.ts backfill-sellbacks",
+    "reindex-sellbacks": "tsx scripts/index.ts reindex-sellbacks",
+    "backfill-marketplace": "tsx scripts/index.ts backfill-marketplace",
+    "reindex-marketplace": "tsx scripts/index.ts reindex-marketplace",
+    "enrich": "tsx scripts/index.ts enrich",
+    "leaderboard": "tsx scripts/index.ts leaderboard",
+    "validate-sellbacks": "tsx scripts/validate-sellbacks.ts",
+    "db:migrate": "for f in sql/*.sql; do psql \"$DATABASE_URL\" -f \"$f\"; done",
+    "db:psql": "psql \"$DATABASE_URL\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "geist": "^1.7.0",
+    "next": "^16.2.6",
+    "postgres": "^3.4.9",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "tsx": "^4.16.0",
+    "typescript": "^5"
+  }
+}

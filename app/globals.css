@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+ * Theme tokens — both Foil Tactical and Arcade CRT set the same variable
+ * names. Components consume them via var(--token) or Tailwind's bg-bg/text-fg
+ * (bound via @theme inline below).
+ *
+ * Switch themes by setting data-theme="foil" | "arcade" on <html>.
+ * =========================================================================== */
+
+:root,
+[data-theme="foil"] {
+  /* Surfaces — values lifted verbatim from screens.jsx */
+  --bg:        oklch(0.155 0.008 70);
+  --bg-2:      oklch(0.185 0.008 70);
+  --bg-3:      oklch(0.215 0.008 70);
+  --line:      oklch(0.30  0.008 70);
+  --line-soft: oklch(0.245 0.008 70);
+
+  /* Text */
+  --fg:   oklch(0.95 0.008 85);
+  --fg-2: oklch(0.78 0.008 85);
+  --fg-3: oklch(0.58 0.008 85);
+  --fg-4: oklch(0.42 0.008 85);
+
+  /* Accents */
+  --accent:     oklch(0.82 0.16 85);   /* foil amber */
+  --accent-dim: oklch(0.62 0.14 85);   /* amberD */
+  --positive:   oklch(0.82 0.14 165);  /* mint — also Holding status */
+  --negative:   oklch(0.72 0.18 340);  /* magenta — also Sold + Ultra tier */
+  --tier-blue:    oklch(0.72 0.14 240);
+  --tier-amber:   var(--accent);
+  --tier-magenta: var(--negative);
+
+  /* Typography */
+  --font-sans:    var(--font-geist-sans, ui-sans-serif, system-ui);
+  --font-mono:    var(--font-mono, ui-monospace, monospace);
+  --font-display: var(--font-sans);     /* Foil uses sans for headings */
+
+  /* Geometry */
+  --radius: 4px;
+  --shadow-glow: 0 0 0 1px var(--accent-dim);
+
+  /* CRT-specific (no-ops on Foil) */
+  --scanline-opacity: 0;
+  --vignette-opacity: 0;
+  --glow-text: none;
+}
+
+[data-theme="arcade"] {
+  /* Surfaces — pure black with phosphor green tint */
+  --bg:        oklch(0.10 0.01 145);
+  --bg-2:      oklch(0.14 0.02 145);
+  --bg-3:      oklch(0.18 0.03 145);
+  --line:      oklch(0.40 0.08 145);
+  --line-soft: oklch(0.28 0.05 145);
+
+  /* Text — phosphor green */
+  --fg:        oklch(0.92 0.18 142);
+  --fg-2:      oklch(0.80 0.15 142);
+  --fg-3:      oklch(0.65 0.12 142);
+  --fg-4:      oklch(0.45 0.10 142);
+
+  /* Accents */
+  --accent:      oklch(0.92 0.18 142);   /* same green = monochrome by default */
+  --accent-dim:  oklch(0.55 0.12 142);
+  --positive:    oklch(0.92 0.18 142);
+  --negative:    oklch(0.78 0.20 25);
+  --tier-blue:   oklch(0.78 0.16 220);
+  --tier-amber:  oklch(0.88 0.18 90);
+  --tier-magenta:oklch(0.78 0.22 330);
+
+  /* Typography */
+  --font-sans:    var(--font-mono, ui-monospace, monospace);
+  --font-display: var(--font-display, var(--font-mono));
+
+  /* Geometry */
+  --radius: 0px;
+  --shadow-glow: 0 0 8px var(--accent);
+
+  /* CRT */
+  --scanline-opacity: 0.08;
+  --vignette-opacity: 0.6;
+  --glow-text: 0 0 4px currentColor;
+}
+
+@theme inline {
+  --color-bg:       var(--bg);
+  --color-bg-2:     var(--bg-2);
+  --color-bg-3:     var(--bg-3);
+  --color-line:     var(--line);
+  --color-line-soft:var(--line-soft);
+  --color-fg:       var(--fg);
+  --color-fg-2:     var(--fg-2);
+  --color-fg-3:     var(--fg-3);
+  --color-fg-4:     var(--fg-4);
+  --color-accent:   var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-tier-blue:    var(--tier-blue);
+  --color-tier-amber:   var(--tier-amber);
+  --color-tier-magenta: var(--tier-magenta);
+  --font-sans:    var(--font-sans);
+  --font-mono:    var(--font-mono);
+  --font-display: var(--font-display);
+  --radius:       var(--radius);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Mono helper for tabular numerics */
+.mono { font-family: var(--font-mono); }
+.display { font-family: var(--font-display); }
+
+/* Arcade CRT chrome — scanline + vignette overlays, layered above content */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+.crt-overlay::before {
+  /* horizontal scanlines */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgba(0, 0, 0, var(--scanline-opacity)) 2px,
+    rgba(0, 0, 0, var(--scanline-opacity)) 3px
+  );
+}
+.crt-overlay::after {
+  /* corner vignette */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, var(--vignette-opacity)) 100%
+  );
+}
+
+/* Arcade phosphor glow on accent text */
+[data-theme="arcade"] .glow,
+[data-theme="arcade"] h1,
+[data-theme="arcade"] h2 {
+  text-shadow: var(--glow-text);
+}
+
+/* Pulsing LIVE dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+.live-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--positive);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
