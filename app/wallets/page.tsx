@@ -48,7 +48,10 @@ export default async function WalletsPage({
         <KpiTile label="Winners" value={`${(kpis.winnersPct * 100).toFixed(0)}%`} />
       </div>
 
+      {/* key={sort+q} forces a fresh client instance per sort/search, so the
+       * "expanded to 100 rows" state on one tab doesn't leak into another. */}
       <LeaderboardSection
+        key={`${sort}|${q}`}
         sort={sort}
         q={q || undefined}
         initialRows={board.rows}
