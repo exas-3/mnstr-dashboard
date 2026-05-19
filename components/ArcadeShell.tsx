@@ -21,7 +21,7 @@ export default function ArcadeShell({
     >
       {/* Desktop side nav — sticky so it stays put while main content scrolls. */}
       <aside
-        className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col self-start overflow-y-auto border-r md:flex"
+        className="sticky top-0 hidden h-dvh w-40 shrink-0 flex-col self-start overflow-y-auto border-r md:flex"
         style={{ borderColor: 'var(--accent)', background: 'var(--bg)' }}
       >
         <div className="border-b px-3 py-4" style={{ borderColor: 'var(--accent-dim)' }}>
