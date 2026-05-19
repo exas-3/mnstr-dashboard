@@ -703,7 +703,11 @@ export interface LadderRow {
   value: number;
 }
 
-export async function getLadder(sort: WalletSort, k = 25): Promise<LadderRow[]> {
+/* Ladder data — mirrors the leaderboard's current sort. Top-K wallets only;
+ * value is positive for pnl winners and negative for losers (kept in case we
+ * ever re-add the split view), but the renderer ignores sign and shows
+ * magnitude as a ranked bar. */
+export async function getLadder(sort: WalletSort, k = 500): Promise<LadderRow[]> {
   if (sort === 'spend') {
     return sql<LadderRow[]>`
       SELECT wallet, MAX(username) AS handle, SUM(price_usd)::float AS value
@@ -722,9 +726,7 @@ export async function getLadder(sort: WalletSort, k = 25): Promise<LadderRow[]> 
       LIMIT ${k}
     `;
   }
-  // pnl: every wallet with a non-zero net, no cap. The chart renders the
-  // full distribution as a skyline. Wallets with net=0 are skipped (they'd
-  // be zero-height bars contributing only noise).
+  // pnl: top-K wallets by net P&L (winners first, descending).
   return sql<LadderRow[]>`
     SELECT
       wallet,
@@ -732,7 +734,8 @@ export async function getLadder(sort: WalletSort, k = 25): Promise<LadderRow[]> 
       (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::float AS value
     FROM pulls_enriched
     GROUP BY wallet
-    HAVING (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd)) <> 0
+    ORDER BY value DESC, wallet ASC
+    LIMIT ${k}
   `;
 }
 
