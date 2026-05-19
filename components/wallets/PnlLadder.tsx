@@ -34,17 +34,14 @@ export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: Wal
 function PnlSplitLadder({ rows }: { rows: LadderRow[] }) {
   const winners = rows.filter(r => r.value > 0).sort((a, b) => b.value - a.value);
   const losers  = rows.filter(r => r.value < 0).sort((a, b) => a.value - b.value);
-  // Log scale (base 10, +1 offset for sub-dollar values). With ~1k wallets
-  // ranging from $1 to $25k, linear scale flattens the bottom 90% to nothing;
-  // log makes the shape of the distribution readable.
-  const lg = (v: number) => Math.log10(1 + Math.abs(v));
-  // Single shared y-axis: both sides scale to the largest magnitude on the
-  // chart, so heights are directly comparable.
-  const sharedMax = lg(Math.max(
+  // Linear scale on |value|. Heights are directly proportional to the raw
+  // dollar magnitude — the biggest winner/loser hit the top, the rest scale
+  // down by ratio. Tail wallets look small, which is honest.
+  const sharedMax = Math.max(
     ...winners.map(r => r.value),
     ...losers.map(r => -r.value),
     1,
-  ));
+  );
   const totalCount = winners.length + losers.length;
   const showTooltips = totalCount <= 200;
 
@@ -53,7 +50,7 @@ function PnlSplitLadder({ rows }: { rows: LadderRow[] }) {
    * of 1,067 wallets are profitable, winners get 12% of the chart width and
    * losers get 88%. So the chart simultaneously shows two things:
    *   - horizontal area = count of wallets in each group
-   *   - bar height      = magnitude of their P&L (log scale, shared y)
+   *   - bar height      = magnitude of their P&L (linear, shared y)
    */
   const padX = 4;
   const padTop = 22;
@@ -78,21 +75,19 @@ function PnlSplitLadder({ rows }: { rows: LadderRow[] }) {
     <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
       <div className="flex items-baseline px-3 pt-2.5 pb-1">
         <Lbl>Net P&amp;L · {winners.length.toLocaleString('en-US')} winners vs {losers.length.toLocaleString('en-US')} losers</Lbl>
-        <Mono style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--fg-4)' }}>LOG $</Mono>
+        <Mono style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--fg-4)' }}>LINEAR $</Mono>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
         style={{ width: '100%', height: H, display: 'block' }}
       >
-        {/* Decade gridlines at $10, $100, $1k, $10k. */}
-        {[1, 2, 3, 4].map(decade => {
-          const frac = decade / sharedMax;
-          if (frac > 1) return null;
+        {/* Quartile gridlines at 25/50/75% of sharedMax. */}
+        {[0.25, 0.5, 0.75].map(frac => {
           const y = baseY - frac * usableH;
           return (
             <line
-              key={decade}
+              key={frac}
               x1="0"
               y1={y}
               x2={W}
@@ -120,7 +115,7 @@ function PnlSplitLadder({ rows }: { rows: LadderRow[] }) {
 
         {/* Losers — biggest loss on the LEFT edge, growing in toward center. */}
         {losers.map((r, i) => {
-          const h = (lg(-r.value) / sharedMax) * usableH;
+          const h = ((-r.value) / sharedMax) * usableH;
           const x = padX + i * losBand.step;
           return (
             <rect
@@ -143,7 +138,7 @@ function PnlSplitLadder({ rows }: { rows: LadderRow[] }) {
 
         {/* Winners — biggest win on the RIGHT edge, growing in toward center. */}
         {winners.map((r, i) => {
-          const h = (lg(r.value) / sharedMax) * usableH;
+          const h = (r.value / sharedMax) * usableH;
           const x = W - padX - (i + 1) * winBand.step;
           return (
             <rect
