@@ -123,9 +123,19 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
               <div style={{ color: 'var(--accent)', fontSize: 10, letterSpacing: '0.18em' }}>
                 ● {ago(newest.pulled_at)}
               </div>
-              <div style={{ color: 'var(--fg)', fontSize: 13, marginTop: 6 }}>
-                {asciiSlug(newest.card_title)}
-              </div>
+              {newest.card_slug ? (
+                <Link
+                  href={`/cards/${newest.card_slug}`}
+                  className="hover:underline"
+                  style={{ color: 'var(--fg)', fontSize: 13, marginTop: 6, display: 'block' }}
+                >
+                  {asciiSlug(newest.card_title)}
+                </Link>
+              ) : (
+                <div style={{ color: 'var(--fg)', fontSize: 13, marginTop: 6 }}>
+                  {asciiSlug(newest.card_title)}
+                </div>
+              )}
               {newest.card_set && (
                 <div style={{ color: 'var(--fg-4)', fontSize: 10, marginTop: 4 }}>
                   {asciiSlug(newest.card_set)}
@@ -193,10 +203,7 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
 
       {!embed && (
         <AsciiCaveat
-          lines={[
-            '?embed=1 hides chrome for streamers.',
-            'big hits (≥$1K FMV) glow & flag in the log.',
-          ]}
+          lines={['big hits (≥$1K FMV) glow & flag in the log.']}
         />
       )}
     </div>

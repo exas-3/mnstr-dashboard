@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { KpiTile, Lbl, Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
+import { KpiTile, Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
 import LiveHero from './LiveHero';
 import type { HitRow, Kpis } from '@/lib/queries';
 
@@ -116,30 +116,39 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
         {rest.map(it => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
+          const cardImage = (
+            <div
+              style={{
+                aspectRatio: '5/7',
+                background: it.card_image_front
+                  ? `center/contain no-repeat url("${it.card_image_front}")`
+                  : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
+                border: `1px solid ${fmv >= 1000 ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
+                position: 'relative',
+                padding: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Mono style={{ fontSize: 8.5, color: 'var(--accent)', letterSpacing: '0.1em' }}>
+                ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              </Mono>
+            </div>
+          );
           return (
             <div
               key={it.request_id}
               className="flex flex-col gap-1.5 p-2"
               style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
             >
-              <div
-                style={{
-                  aspectRatio: '5/7',
-                  background: it.card_image_front
-                    ? `center/contain no-repeat url("${it.card_image_front}")`
-                    : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-                  border: `1px solid ${fmv >= 1000 ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-                  position: 'relative',
-                  padding: 6,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <Mono style={{ fontSize: 8.5, color: 'var(--accent)', letterSpacing: '0.1em' }}>
-                  ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                </Mono>
-              </div>
+              {it.card_slug ? (
+                <Link href={`/cards/${it.card_slug}`} className="block">
+                  {cardImage}
+                </Link>
+              ) : (
+                cardImage
+              )}
               <div className="flex items-center justify-between">
                 <Link
                   href={`/wallets/${it.wallet}`}
@@ -165,8 +174,6 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
           style={{ borderTop: '1px dashed var(--line-soft)' }}
         >
           <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
-            † <Lbl style={{ display: 'inline', fontSize: 9.5, letterSpacing: '0.1em' }}>?embed=1</Lbl> hides chrome for streamers.
-            <br />
             † Big hits (≥$1k FMV) flash &amp; pin for 30s.
           </Mono>
         </div>

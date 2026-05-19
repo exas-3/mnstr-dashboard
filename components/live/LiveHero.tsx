@@ -84,34 +84,60 @@ export default function LiveHero({ pull }: { pull: HitRow | null }) {
           transition: 'box-shadow 200ms, border-color 200ms',
         }}
       >
-        <div
-          style={{
-            aspectRatio: '5/7',
-            background: shown.card_image_front
-              ? `center/contain no-repeat url("${shown.card_image_front}")`
-              : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
-            border: `1px solid ${isBig ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-            boxShadow: isBig
-              ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 22px color-mix(in oklch, var(--accent) 12%, transparent)'
-              : 'none',
-          }}
-        />
+        {(() => {
+          const thumb = (
+            <div
+              style={{
+                aspectRatio: '5/7',
+                background: shown.card_image_front
+                  ? `center/contain no-repeat url("${shown.card_image_front}")`
+                  : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
+                border: `1px solid ${isBig ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
+                boxShadow: isBig
+                  ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 22px color-mix(in oklch, var(--accent) 12%, transparent)'
+                  : 'none',
+              }}
+            />
+          );
+          return shown.card_slug ? (
+            <Link href={`/cards/${shown.card_slug}`}>{thumb}</Link>
+          ) : (
+            thumb
+          );
+        })()}
         <div className="flex min-w-0 flex-col justify-between">
           <div>
             <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.16em' }}>
               {pinned ? '★ PINNED · BIG HIT' : '● NOW'} · {ago(shown.pulled_at)}
             </Mono>
-            <div
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: 14,
-                color: 'var(--fg)',
-                marginTop: 6,
-                lineHeight: 1.25,
-              }}
-            >
-              {shown.card_title ?? `Pull #${shown.request_id.slice(0, 8)}`}
-            </div>
+            {shown.card_slug ? (
+              <Link
+                href={`/cards/${shown.card_slug}`}
+                className="hover:underline"
+                style={{
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 14,
+                  color: 'var(--fg)',
+                  marginTop: 6,
+                  lineHeight: 1.25,
+                  display: 'block',
+                }}
+              >
+                {shown.card_title ?? `Pull #${shown.request_id.slice(0, 8)}`}
+              </Link>
+            ) : (
+              <div
+                style={{
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 14,
+                  color: 'var(--fg)',
+                  marginTop: 6,
+                  lineHeight: 1.25,
+                }}
+              >
+                {shown.card_title ?? `Pull #${shown.request_id.slice(0, 8)}`}
+              </div>
+            )}
             {shown.card_set && (
               <Mono style={{ fontSize: 9.5, color: 'var(--fg-3)', marginTop: 4, display: 'block' }}>
                 {shown.card_set}
