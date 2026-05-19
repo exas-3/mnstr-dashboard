@@ -1,7 +1,7 @@
 import {
   getLeaderboard,
   getLeaderboardKpis,
-  getPnlLadder,
+  getLadder,
   type WalletSort,
 } from '@/lib/queries';
 import { KpiTile, Mono, SectionHead } from '@/components/primitives';
@@ -41,7 +41,7 @@ export default async function WalletsPage({
   const [board, kpis, ladder] = await Promise.all([
     getLeaderboard(sort, 0, PAGE_SIZE, q || undefined),
     getLeaderboardKpis(),
-    getPnlLadder(25),
+    getLadder(sort, 25),
   ]);
 
   const sortLabel = sort === 'pnl' ? 'net p&l' : sort === 'spend' ? 'spend' : 'pulls';
@@ -58,8 +58,12 @@ export default async function WalletsPage({
         <KpiTile label="Winners" value={`${(kpis.winnersPct * 100).toFixed(0)}%`} />
       </div>
 
-      <SectionHead tag="01 · LADDER" title="Winners vs losers" right="TOP 25 PER SIDE" />
-      <PnlLadder rows={ladder} />
+      <SectionHead
+        tag="01 · LADDER"
+        title={sort === 'pnl' ? 'Winners vs losers' : sort === 'spend' ? 'Top spenders' : 'Most pulls'}
+        right={sort === 'pnl' ? `${ladder.length.toLocaleString('en-US')} WALLETS` : 'TOP 25'}
+      />
+      <PnlLadder rows={ladder} sort={sort} />
 
       <SectionHead
         tag="02 · TABLE"
@@ -71,7 +75,7 @@ export default async function WalletsPage({
       ) : (
         <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
           {board.rows.map((r, i) => (
-            <LeaderboardRow key={r.wallet} row={r} first={i === 0} />
+            <LeaderboardRow key={r.wallet} row={r} first={i === 0} sort={sort} />
           ))}
         </div>
       )}

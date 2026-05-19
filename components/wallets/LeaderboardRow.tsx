@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Identicon, Mono, Sparkline } from '../primitives';
-import type { WalletRow } from '@/lib/queries';
+import type { WalletRow, WalletSort } from '@/lib/queries';
 
 function shortAddr(a: string): string {
   return a.slice(0, 6) + '…' + a.slice(-4);
@@ -14,10 +14,27 @@ function abbrUsd(n: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
-export default function LeaderboardRow({ row, first }: { row: WalletRow; first?: boolean }) {
+/* Row layout adapts to the active sort:
+ *   pnl   → handle + spent line · big net P&L on the right
+ *   spend → handle · big total spent on the right
+ *   pulls → handle + spent line · big pull count on the right
+ *
+ * Total spent stays visible in every sort, since that's the single number
+ * that makes the rest interpretable (P&L without spend is just a vibe). */
+export default function LeaderboardRow({
+  row,
+  first,
+  sort = 'pnl',
+}: {
+  row: WalletRow;
+  first?: boolean;
+  sort?: WalletSort;
+}) {
   const isPos = row.net >= 0;
-  const sparkColor = isPos ? 'var(--positive)' : 'var(--tier-magenta)';
+  const pnlColor = isPos ? 'var(--positive)' : 'var(--tier-magenta)';
   const display = row.handle ?? shortAddr(row.wallet);
+  const sparkColor = sort === 'pnl' ? pnlColor : 'var(--fg-3)';
+
   return (
     <Link
       href={`/wallets/${row.wallet}`}
@@ -44,20 +61,34 @@ export default function LeaderboardRow({ row, first }: { row: WalletRow; first?:
             >
               {display}
             </span>
-            {row.handle && <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)' }}>{shortAddr(row.wallet)}</Mono>}
+            {row.handle && (
+              <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)' }}>{shortAddr(row.wallet)}</Mono>
+            )}
           </div>
-          <div className="mt-0.5 flex gap-2.5">
-            <Mono style={{ fontSize: 9.5, color: 'var(--fg-3)' }}>
-              {row.pulls.toLocaleString('en-US')} pulls
+          {sort !== 'spend' && (
+            <Mono style={{ fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2, display: 'block' }}>
+              {abbrUsd(row.spend)} spent
             </Mono>
-            <Mono style={{ fontSize: 9.5, color: 'var(--fg-3)' }}>· {abbrUsd(row.spend)} spent</Mono>
-          </div>
+          )}
         </div>
         <div className="text-right">
-          <Mono style={{ fontSize: 13, color: sparkColor, display: 'block' }}>
-            {isPos ? '+' : ''}
-            {abbrUsd(row.net)}
-          </Mono>
+          {sort === 'pnl' && (
+            <Mono style={{ fontSize: 13, color: pnlColor, display: 'block' }}>
+              {isPos ? '+' : ''}
+              {abbrUsd(row.net)}
+            </Mono>
+          )}
+          {sort === 'spend' && (
+            <Mono style={{ fontSize: 13, color: 'var(--fg)', display: 'block' }}>
+              {abbrUsd(row.spend)}
+            </Mono>
+          )}
+          {sort === 'pulls' && (
+            <Mono style={{ fontSize: 13, color: 'var(--fg)', display: 'block' }}>
+              {row.pulls.toLocaleString('en-US')}
+              <span style={{ color: 'var(--fg-3)', fontSize: 9, marginLeft: 3 }}>pulls</span>
+            </Mono>
+          )}
           {row.spark.length > 0 && (
             <div className="mt-0.5 inline-block">
               <Sparkline pts={row.spark} color={sparkColor} w={60} h={14} />

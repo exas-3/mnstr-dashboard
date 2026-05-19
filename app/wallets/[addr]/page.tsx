@@ -17,6 +17,7 @@ import {
 import { BackIcon } from '@/components/Icons';
 import WalletRhythm from '@/components/wallets/WalletRhythm';
 import WalletNeighbours from '@/components/wallets/WalletNeighbours';
+import HitRowItem from '@/components/pulse/HitRowItem';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -278,12 +279,28 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         )}
       </div>
 
+      {/* Recent pulls — newest first, after the Collection's top-FMV grid */}
+      <SectionHead
+        tag="03 · RECENT"
+        title="Recent pulls"
+        right={`${Math.min(detail.recent.length, 12)} OF ${detail.collectionTotal.toLocaleString('en-US')}`}
+      />
+      <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
+        {detail.recent.length === 0 ? (
+          <div className="px-3 py-5 text-center">
+            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS</Mono>
+          </div>
+        ) : (
+          detail.recent.map((h, i) => <HitRowItem key={h.request_id} hit={h} first={i === 0} />)
+        )}
+      </div>
+
       {/* Rhythm */}
-      <SectionHead tag="03 · RHYTHM" title="Pulls over time" right="12 WK" />
+      <SectionHead tag="04 · RHYTHM" title="Pulls over time" right="12 WK" />
       <WalletRhythm data={rhythm} weeks={12} />
 
       {/* Neighbours */}
-      <SectionHead tag="04 · NEIGHBOURS" title="Wallets near rank" right="±3" />
+      <SectionHead tag="05 · NEIGHBOURS" title="Wallets near rank" right="±3" />
       <WalletNeighbours rows={neighbours} />
 
       {/* Footer */}

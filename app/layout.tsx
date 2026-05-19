@@ -6,9 +6,11 @@ import { fontClasses } from './fonts';
 import Shell from '@/components/Shell';
 import { DEFAULT_THEME, THEME_COOKIE, isTheme } from '@/lib/theme';
 
-// Plausible — privacy-friendly analytics. Self-hosted on localhost for dev;
-// swap PLAUSIBLE_SRC at the time you point this at a production endpoint.
-const PLAUSIBLE_SRC = 'http://localhost:3001/js/pa-otWkGMENf8W9OIVErtvJY.js';
+// Plausible — opt-in analytics. Set NEXT_PUBLIC_PLAUSIBLE_SRC in the env to
+// enable; the script is only emitted when the env var is non-empty.
+// The URL is fetched by the *browser*, so it must be reachable from users'
+// machines (i.e. not `localhost` in a production deploy).
+const PLAUSIBLE_SRC = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? '';
 
 export const metadata: Metadata = {
   title: 'MnStr — On-chain gacha analytics',
@@ -25,11 +27,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Shell theme={theme}>{children}</Shell>
         {theme === 'arcade' && <div className="crt-overlay" aria-hidden />}
 
-        {/* Plausible analytics — loaded after hydration so it doesn't block render. */}
-        <Script src={PLAUSIBLE_SRC} strategy="afterInteractive" async />
-        <Script id="plausible-init" strategy="afterInteractive">
-          {`window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`}
-        </Script>
+        {/* Plausible analytics — only emitted when NEXT_PUBLIC_PLAUSIBLE_SRC is set. */}
+        {PLAUSIBLE_SRC && (
+          <>
+            <Script src={PLAUSIBLE_SRC} strategy="afterInteractive" async />
+            <Script id="plausible-init" strategy="afterInteractive">
+              {`window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`}
+            </Script>
+          </>
+        )}
       </body>
     </html>
   );

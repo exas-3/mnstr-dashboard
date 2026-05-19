@@ -593,10 +593,11 @@ export async function getLeaderboard(
     ) t
   `;
 
-  // 12-week spark per wallet (cheap because we limit by the page wallets)
+  // Cumulative spark per wallet (one point per active day, sum of the
+  // sort metric — pulls, spend or net P&L).
   const wallets = rows.map(r => r.wallet);
   const sparkByWallet = wallets.length > 0
-    ? await sparkForWallets(wallets)
+    ? await sparkForWallets(wallets, sort)
     : new Map<string, number[]>();
 
   return {
@@ -615,25 +616,44 @@ export async function getLeaderboard(
   };
 }
 
-async function sparkForWallets(wallets: string[]): Promise<Map<string, number[]>> {
-  const rows = await sql<Array<{ wallet: string; bucket: number; pulls: number }>>`
+/* Per-wallet sparkline points — cumulative running total of the chosen
+ * metric, daily resolution, starting at the wallet's first pull.
+ *
+ * The chart axis is each wallet's own timeline: 1 point per active day.
+ * Inactive days are skipped (we don't pad with zeros) so the line slope
+ * visually maps to "how aggressively did they accumulate while playing".
+ */
+async function sparkForWallets(
+  wallets: string[],
+  sort: WalletSort,
+): Promise<Map<string, number[]>> {
+  const rows = await sql<Array<{ wallet: string; day: string; pulls: number; spend: string; net: string }>>`
     SELECT
       wallet,
-      EXTRACT(EPOCH FROM (date_trunc('week', pulled_at)))::bigint / (7 * 24 * 60 * 60) AS bucket,
-      COUNT(*)::int AS pulls
+      to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD')                                       AS day,
+      COUNT(*)::int                                                                              AS pulls,
+      SUM(price_usd)::text                                                                       AS spend,
+      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::text AS net
     FROM pulls_enriched
     WHERE wallet IN ${sql(wallets)}
-      AND pulled_at >= now() - interval '84 days'
-    GROUP BY 1, 2
-    ORDER BY 1, 2
+    GROUP BY wallet, day
+    ORDER BY wallet, day
   `;
-  // Bucket into 12 contiguous weeks ending now
-  const now = Math.floor(Date.now() / 1000 / (7 * 24 * 60 * 60));
   const map = new Map<string, number[]>();
-  for (const w of wallets) map.set(w, Array(12).fill(0));
+  for (const w of wallets) map.set(w, []);
+  let runningSum = 0;
+  let runningWallet: string | null = null;
   for (const r of rows) {
-    const idx = 11 - (now - Number(r.bucket));
-    if (idx >= 0 && idx < 12) map.get(r.wallet)![idx] = r.pulls;
+    if (r.wallet !== runningWallet) {
+      runningSum = 0;
+      runningWallet = r.wallet;
+    }
+    const delta =
+      sort === 'spend' ? Number(r.spend)
+      : sort === 'pulls' ? r.pulls
+      : Number(r.net);
+    runningSum += delta;
+    map.get(r.wallet)!.push(runningSum);
   }
   return map;
 }
@@ -674,37 +694,50 @@ export async function getLeaderboardKpis(): Promise<LeaderboardKpis> {
  * Top-K by absolute net; sorted with positives first then negatives.
  * ───────────────────────────────────────────────────────────── */
 
+/* Ladder data shape — one bar per row. `value` is the metric (pnl/spend/pulls).
+ * For 'pnl' the table returns both winners (positive) and losers (negative);
+ * for 'spend' and 'pulls' only the top-K (all positive). */
 export interface LadderRow {
   wallet: string;
   handle: string | null;
-  net: number;
+  value: number;
 }
 
-/* Top-K winners (largest +net) AND top-K losers (largest -net), unioned.
- * The PnlLadder component re-sorts internally; we just hand it both sets. */
-export async function getPnlLadder(perSide = 25): Promise<LadderRow[]> {
-  return sql<LadderRow[]>`
-    WITH per_wallet AS (
-      SELECT
-        wallet,
-        MAX(username) AS handle,
-        (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::float AS net
+export async function getLadder(sort: WalletSort, k = 25): Promise<LadderRow[]> {
+  if (sort === 'spend') {
+    return sql<LadderRow[]>`
+      SELECT wallet, MAX(username) AS handle, SUM(price_usd)::float AS value
       FROM pulls_enriched
       GROUP BY wallet
-    ),
-    winners AS (
-      SELECT wallet, handle, net FROM per_wallet WHERE net > 0
-      ORDER BY net DESC LIMIT ${perSide}
-    ),
-    losers AS (
-      SELECT wallet, handle, net FROM per_wallet WHERE net < 0
-      ORDER BY net ASC  LIMIT ${perSide}
-    )
-    SELECT * FROM winners
-    UNION ALL
-    SELECT * FROM losers
+      ORDER BY value DESC, wallet ASC
+      LIMIT ${k}
+    `;
+  }
+  if (sort === 'pulls') {
+    return sql<LadderRow[]>`
+      SELECT wallet, MAX(username) AS handle, COUNT(*)::float AS value
+      FROM pulls_enriched
+      GROUP BY wallet
+      ORDER BY value DESC, wallet ASC
+      LIMIT ${k}
+    `;
+  }
+  // pnl: every wallet with a non-zero net, no cap. The chart renders the
+  // full distribution as a skyline. Wallets with net=0 are skipped (they'd
+  // be zero-height bars contributing only noise).
+  return sql<LadderRow[]>`
+    SELECT
+      wallet,
+      MAX(username) AS handle,
+      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::float AS value
+    FROM pulls_enriched
+    GROUP BY wallet
+    HAVING (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd)) <> 0
   `;
 }
+
+/** @deprecated Use {@link getLadder} with sort='pnl' */
+export const getPnlLadder = (k = 25) => getLadder('pnl', k);
 
 /* ─────────────────────────────────────────────────────────────
  * Wallet detail
@@ -724,6 +757,7 @@ export interface WalletDetail {
   tierMix: Array<{ tier: string; pulls: number }>;
   collection: HitRow[];     // top fmv pulls (up to 9)
   collectionTotal: number;
+  recent: HitRow[];         // newest pulls first (up to 12)
 }
 
 export async function getWalletDetail(wallet: string): Promise<WalletDetail | null> {
@@ -783,6 +817,26 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
     ORDER BY p.fmv_usd DESC
     LIMIT 9
   `;
+  const recent = await sql<HitRow[]>`
+    SELECT
+      p.request_id::text  AS request_id,
+      p.tier,
+      p.card_slug,
+      c.title             AS card_title,
+      c.card_set          AS card_set,
+      c.image_front       AS card_image_front,
+      p.username, p.user_slug, p.wallet,
+      p.price_usd::text   AS price_usd,
+      p.fmv_usd::text     AS fmv_usd,
+      p.payout_usd::text  AS payout_usd,
+      p.status,
+      p.pulled_at::text   AS pulled_at
+    FROM pulls_enriched p
+    LEFT JOIN cards c ON c.slug = p.card_slug
+    WHERE p.wallet = ${addr}
+    ORDER BY p.pulled_at DESC
+    LIMIT 12
+  `;
 
   const spend = Number(agg.spend);
   const payout = Number(agg.payout);
@@ -800,6 +854,7 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
     tierMix,
     collection,
     collectionTotal: agg.pulls,
+    recent,
   };
 }
 

@@ -72,7 +72,7 @@ export default function WalletsLoadMore({
           style={{ background: 'var(--bg-2)', borderLeft: '1px solid var(--line-soft)', borderRight: '1px solid var(--line-soft)' }}
         >
           {rows.map(r => (
-            <LeaderboardRow key={r.wallet} row={r} />
+            <LeaderboardRow key={r.wallet} row={r} sort={sort} />
           ))}
         </div>
       )}

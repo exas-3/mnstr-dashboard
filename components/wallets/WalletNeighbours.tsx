@@ -18,7 +18,6 @@ export default function WalletNeighbours({ rows }: { rows: NeighbourRow[] }) {
   return (
     <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
       {rows.map((r, i) => {
-        const isPos = r.net >= 0;
         const display = r.handle ?? shortAddr(r.wallet);
         return (
           <Link
@@ -32,7 +31,7 @@ export default function WalletNeighbours({ rows }: { rows: NeighbourRow[] }) {
           >
             <div
               className="grid items-center gap-2"
-              style={{ gridTemplateColumns: '28px 1fr 70px auto' }}
+              style={{ gridTemplateColumns: '28px 1fr auto' }}
             >
               <Mono style={{ fontSize: 11, color: r.current ? 'var(--accent)' : 'var(--fg-4)' }}>
                 {String(r.rank).padStart(2, '0')}
@@ -52,16 +51,6 @@ export default function WalletNeighbours({ rows }: { rows: NeighbourRow[] }) {
               </div>
               <Mono style={{ fontSize: 10, color: 'var(--fg-3)', textAlign: 'right' }}>
                 {r.pulls.toLocaleString('en-US')} · {abbrUsd(r.spend)}
-              </Mono>
-              <Mono
-                style={{
-                  fontSize: 12,
-                  color: isPos ? 'var(--positive)' : 'var(--tier-magenta)',
-                  textAlign: 'right',
-                }}
-              >
-                {isPos ? '+' : ''}
-                {abbrUsd(r.net)}
               </Mono>
             </div>
           </Link>
