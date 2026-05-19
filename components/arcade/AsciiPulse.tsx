@@ -90,12 +90,22 @@ export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
               <div style={{ color: 'var(--accent)', fontSize: 10, letterSpacing: '0.18em' }}>
                 ★ {ago(bigHit.pulled_at)}
               </div>
-              <div
-                className="mt-1"
-                style={{ color: 'var(--fg)', fontSize: 13, letterSpacing: '0.04em', lineHeight: 1.2 }}
-              >
-                {asciiSlug(bigHit.card_title)}.{(bigHit.tier ?? 'ult').toLowerCase()}
-              </div>
+              {bigHit.card_slug ? (
+                <Link
+                  href={`/cards/${bigHit.card_slug}`}
+                  className="mt-1 hover:underline"
+                  style={{ color: 'var(--fg)', fontSize: 13, letterSpacing: '0.04em', lineHeight: 1.2, display: 'block' }}
+                >
+                  {asciiSlug(bigHit.card_title)}.{(bigHit.tier ?? 'ult').toLowerCase()}
+                </Link>
+              ) : (
+                <div
+                  className="mt-1"
+                  style={{ color: 'var(--fg)', fontSize: 13, letterSpacing: '0.04em', lineHeight: 1.2 }}
+                >
+                  {asciiSlug(bigHit.card_title)}.{(bigHit.tier ?? 'ult').toLowerCase()}
+                </div>
+              )}
               <div className="mt-1" style={{ color: 'var(--fg-3)', fontSize: 10 }}>
                 {bigHit.username ? `@${bigHit.username}` : shortAddr(bigHit.wallet)} ·{' '}
                 <AsciiTier tier={bigHit.tier as 'Starter' | 'Premium' | 'Ultra'} />

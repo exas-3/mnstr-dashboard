@@ -133,6 +133,7 @@ export default async function PulsePage({
             tier: bigHit.tier.toUpperCase(),
             fmv: Math.round(Number(bigHit.fmv_usd ?? 0)).toLocaleString('en-US'),
             imageUrl: bigHit.card_image_front,
+            href: bigHit.card_slug ? `/cards/${bigHit.card_slug}` : undefined,
           }}
         />
       )}
