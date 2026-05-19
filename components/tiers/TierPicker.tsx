@@ -7,7 +7,7 @@ const TIERS = [
   { id: 'Ultra',   sub: '$1,250' },
 ] as const;
 
-export default function TierPicker({ value, mode }: { value: string; mode: string }) {
+export default function TierPicker({ value }: { value: string }) {
   return (
     <div
       className="mx-3 mt-3 grid grid-cols-3"
@@ -15,7 +15,7 @@ export default function TierPicker({ value, mode }: { value: string; mode: strin
     >
       {TIERS.map((t, i) => {
         const on = t.id === value;
-        const href = `/tiers?tier=${t.id}${mode === 'paper' ? '&mode=paper' : ''}`;
+        const href = `/tiers?tier=${t.id}`;
         return (
           <Link
             key={t.id}

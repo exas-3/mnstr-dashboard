@@ -3,11 +3,9 @@ import {
   getTierFMVDistribution,
   getSoldBackRateOverTime,
   getTierOutliers,
-  type PnlMode,
 } from '@/lib/queries';
 import { Lbl, Mono, SectionHead } from '@/components/primitives';
 import TierPicker from '@/components/tiers/TierPicker';
-import RealisedPaperToggle from '@/components/tiers/RealisedPaperToggle';
 import ViolinChart from '@/components/tiers/ViolinChart';
 import SoldBackChart from '@/components/tiers/SoldBackChart';
 import EconGrid from '@/components/tiers/EconGrid';
@@ -41,7 +39,7 @@ function abbrUsd(n: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
-interface Search { tier?: string; mode?: string }
+interface Search { tier?: string }
 
 export default async function TiersPage({
   searchParams,
@@ -50,7 +48,10 @@ export default async function TiersPage({
 }) {
   const params = await searchParams;
   const tier: TierName = isTier(params.tier) ? params.tier : 'Premium';
-  const mode: PnlMode = params.mode === 'paper' ? 'paper' : 'realised';
+  // House P&L on Tiers always shows the realised view — the paper view was
+  // a "what would the books look like if everyone sold today" hypothetical
+  // and felt out of place next to the other figures.
+  const mode = 'realised';
 
   const [econ, dist, soldBackTrend, outliers] = await Promise.all([
     getTierEconomics(tier, mode),
@@ -61,15 +62,14 @@ export default async function TiersPage({
 
   return (
     <div className="pb-6">
-      <TierPicker value={tier} mode={mode} />
-      <RealisedPaperToggle value={mode} tier={tier} />
+      <TierPicker value={tier} />
 
       {/* House-edge hero */}
       <div
         className="mx-3 mt-3 px-3.5 py-3.5"
         style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
       >
-        <Lbl style={{ fontSize: 8.5 }}>House edge · {mode}</Lbl>
+        <Lbl style={{ fontSize: 8.5 }}>House edge</Lbl>
         <div className="mt-1 flex items-baseline justify-between">
           <Mono style={{ fontSize: 36, color: 'var(--accent)', letterSpacing: '-0.02em' }}>
             {(econ.edge * 100).toFixed(1)}%
@@ -119,11 +119,10 @@ export default async function TiersPage({
       <SectionHead tag="03 · BOOK" title="Pack economics" />
       <EconGrid
         items={[
-          { label: 'Cycled in',                                 value: abbrUsd(econ.revenue) },
-          { label: 'Vault FMV (holding)',                       value: abbrUsd(econ.vaultFmv) },
-          { label: mode === 'realised' ? 'Realised payouts' : 'Paper payouts',
-            value: abbrUsd(econ.payouts),                       tone: 'pos' },
-          { label: 'House P&L',                                  value: abbrUsd(econ.pnlHouse), tone: 'pos' },
+          { label: 'Cycled in',           value: abbrUsd(econ.revenue) },
+          { label: 'Vault FMV (holding)', value: abbrUsd(econ.vaultFmv) },
+          { label: 'Payouts',             value: abbrUsd(econ.payouts), tone: 'pos' },
+          { label: 'House P&L',           value: abbrUsd(econ.pnlHouse), tone: 'pos' },
           {
             label: 'Median FMV',
             value: econ.median !== null ? usd(econ.median, econ.median < 100 ? 2 : 0) : '–',
@@ -157,7 +156,7 @@ export default async function TiersPage({
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
           † Distribution uses <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> at time of pull.
           <br />
-          † Realised = pack revenue − payouts on sold-back. Paper = revenue − fmv × 0.85 over all pulls.
+          † Pack economics are realised only — pack revenue minus payouts on sold-back pulls.
         </Mono>
       </div>
     </div>
