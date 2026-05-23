@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
   getKpisFor,
@@ -18,8 +19,14 @@ import OutlierRow from '@/components/tiers/OutlierRow';
 import BigHitBanner from '@/components/BigHitBanner';
 import AsciiPulse from '@/components/arcade/AsciiPulse';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60;
+
+export const metadata: Metadata = {
+  title: 'Pulse — live MnStr gacha analytics on MegaETH',
+  description:
+    'Live snapshot of MnStr pack pulls, big hits, and house economics on the MegaETH chain. Updated every 5 seconds.',
+  alternates: { canonical: '/' },
+};
 
 const WINDOWS: Array<{ key: TimeWindowKey; label: string }> = [
   { key: '24h', label: '24H' },
@@ -185,46 +192,56 @@ export default async function PulsePage({
         </div>
       </div>
 
-      {/* 6 KPI tiles */}
-      <div className="grid grid-cols-2 gap-2 px-3 pt-3 sm:grid-cols-3">
-        <KpiTile label={`Packs · ${winLabel}`} value={kpis.packs.toLocaleString('en-US')} />
-        <KpiTile label={`USDm · ${winLabel}`} value={cycled.value} unit={cycled.unit} />
-        <KpiTile label={`Payouts · ${winLabel}`} value={payouts.value} unit={payouts.unit} />
-        <KpiTile label={`Wallets · ${winLabel}`} value={kpis.walletsActive.toLocaleString('en-US')} />
-        <KpiTile label="Packs · all-time" value={kpis.packsAllTime.toLocaleString('en-US')} delta="cumulative" />
-        <KpiTile label="USDm · all-time" value={allCycled.value} unit={allCycled.unit} delta="cumulative" />
-      </div>
-
-      {/* Velocity */}
-      <SectionHead tag="01 · VELOCITY" title="Packs/day, stacked" right={`${VELOCITY_DAYS[window]}D BACKDROP`} />
-      <VelocityChart data={velocity} days={VELOCITY_DAYS[window]} />
-
-      {/* Tier strip */}
-      <SectionHead tag="02 · TIERS" title="Edge by tier" right="ALL-TIME" />
-      <TierStrip stats={tiers} />
-
-      {/* Live ticker */}
-      <SectionHead
-        tag="03 · LIVE"
-        title="Recent pulls"
-        right={
-          <Link href="/live" style={{ color: 'var(--accent)' }}>
-            OPEN STREAM →
-          </Link>
-        }
-      />
-      <LiveTickerStrip items={live} />
-
-      {/* Top hits */}
-      <SectionHead tag="04 · BIG HITS" title="Top hits · 7d" right="MNSTR FMV" />
-      <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
-        {topHitsDeduped.length === 0 ? (
-          <div className="px-3 py-5 text-center">
-            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS IN WINDOW</Mono>
+      <div className="lg:grid lg:grid-cols-12 lg:gap-4 lg:px-2">
+        {/* Main column (full width on mobile/tablet, 8/12 on lg+) */}
+        <div className="lg:col-span-8 lg:min-w-0">
+          {/* 6 KPI tiles */}
+          <div className="grid grid-cols-2 gap-2 px-3 pt-3 sm:grid-cols-3 lg:px-0">
+            <KpiTile label={`Packs · ${winLabel}`} value={kpis.packs.toLocaleString('en-US')} />
+            <KpiTile label={`USDm · ${winLabel}`} value={cycled.value} unit={cycled.unit} />
+            <KpiTile label={`Payouts · ${winLabel}`} value={payouts.value} unit={payouts.unit} />
+            <KpiTile label={`Wallets · ${winLabel}`} value={kpis.walletsActive.toLocaleString('en-US')} />
+            <KpiTile label="Packs · all-time" value={kpis.packsAllTime.toLocaleString('en-US')} delta="cumulative" />
+            <KpiTile label="USDm · all-time" value={allCycled.value} unit={allCycled.unit} delta="cumulative" />
           </div>
-        ) : (
-          topHitsDeduped.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
-        )}
+
+          {/* Velocity */}
+          <SectionHead tag="VELOCITY" title="Packs/day, stacked" right={`${VELOCITY_DAYS[window]}D BACKDROP`} />
+          <VelocityChart data={velocity} days={VELOCITY_DAYS[window]} />
+
+          {/* Tier strip */}
+          <SectionHead tag="TIERS" title="Edge by tier" right="ALL-TIME" />
+          <TierStrip stats={tiers} />
+
+          {/* Live ticker */}
+          <SectionHead
+            tag="LIVE"
+            title="Recent pulls"
+            right={
+              <Link href="/live" style={{ color: 'var(--accent)' }}>
+                OPEN STREAM →
+              </Link>
+            }
+          />
+          <LiveTickerStrip items={live} />
+        </div>
+
+        {/* Big Hits side rail (cols 9-12 on lg, full row below on mobile/tablet) */}
+        <aside className="lg:col-span-4 lg:min-w-0">
+          <SectionHead tag="BIG HITS" title="Top hits · 7d" right="MNSTR FMV" />
+          <div
+            className="mx-3 lg:mx-0"
+            style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
+          >
+            {topHitsDeduped.length === 0 ? (
+              <div className="px-3 py-5 text-center">
+                <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS IN WINDOW</Mono>
+              </div>
+            ) : (
+              topHitsDeduped.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
+            )}
+          </div>
+        </aside>
       </div>
 
       {/* Caveat footer */}

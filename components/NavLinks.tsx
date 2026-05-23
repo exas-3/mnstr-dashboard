@@ -1,9 +1,9 @@
 export const NAV = [
-  { href: '/',        label: 'Pulse',   key: 'pulse',   fkey: 'F1' },
-  { href: '/tiers',   label: 'Tiers',   key: 'tiers',   fkey: 'F2' },
-  { href: '/wallets', label: 'Wallets', key: 'wallets', fkey: 'F3' },
-  { href: '/cards',   label: 'Cards',   key: 'cards',   fkey: 'F4' },
-  { href: '/live',    label: 'Live',    key: 'live',    fkey: 'F5' },
+  { href: '/',        label: 'Pulse',   key: 'pulse',   fkey: 'F1', sub: 'home'        },
+  { href: '/tiers',   label: 'Tiers',   key: 'tiers',   fkey: 'F2', sub: 'economics'   },
+  { href: '/wallets', label: 'Wallets', key: 'wallets', fkey: 'F3', sub: 'leaderboard' },
+  { href: '/cards',   label: 'Cards',   key: 'cards',   fkey: 'F4', sub: 'vault'       },
+  { href: '/live',    label: 'Live',    key: 'live',    fkey: 'F5', sub: 'stream'      },
 ] as const;
 
 export type NavKey = (typeof NAV)[number]['key'];

@@ -1,9 +1,17 @@
+import type { Metadata } from 'next';
 import LivePulse from '@/components/live/LivePulse';
 import AsciiLive from '@/components/arcade/AsciiLive';
 import { getKpisFor, getLiveFeed, getLatestIndexedBlock } from '@/lib/queries';
 import { getTheme } from '@/lib/server-theme';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Live · MnStr stream',
+  description:
+    'Real-time stream of MnStr pack pulls. Big hits ≥ $1k FMV flash and pin for 30 seconds. 5-second polling.',
+  alternates: { canonical: '/live' },
+};
 
 interface Search {
   embed?: string;

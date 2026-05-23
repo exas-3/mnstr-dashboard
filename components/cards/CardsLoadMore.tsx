@@ -67,7 +67,7 @@ export default function CardsLoadMore({
   return (
     <>
       {rows.length > 0 && (
-        <div className="mx-3 mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="mx-3 mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
           {rows.map(c => (
             <CardWallTile key={c.slug} card={c} />
           ))}

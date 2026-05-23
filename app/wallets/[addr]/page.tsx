@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
@@ -19,8 +20,38 @@ import WalletRhythm from '@/components/wallets/WalletRhythm';
 import WalletNeighbours from '@/components/wallets/WalletNeighbours';
 import HitRowItem from '@/components/pulse/HitRowItem';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 300;
+
+export async function generateMetadata({ params }: { params: Promise<{ addr: string }> }): Promise<Metadata> {
+  const { addr } = await params;
+  const wallet = await getWalletDetail(addr);
+  if (!wallet) {
+    return { title: 'Wallet not found', robots: { index: false, follow: false } };
+  }
+  const display = wallet.handle ? `@${wallet.handle}` : `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  const sign = wallet.net >= 0 ? '+' : '';
+  const netStr = `${sign}$${Math.round(wallet.net).toLocaleString('en-US')}`;
+  const spendStr = `$${Math.round(wallet.spend).toLocaleString('en-US')}`;
+  const desc = `${display} — rank #${wallet.rank}, net P&L ${netStr} on ${spendStr} spent across ${wallet.pulls.toLocaleString('en-US')} MnStr pulls.`;
+  return {
+    title: `${display} · rank #${wallet.rank}`,
+    description: desc,
+    alternates: { canonical: `/wallets/${addr}` },
+    openGraph: {
+      title: `${display} · MnStr · Watch`,
+      description: desc,
+      url: `/wallets/${addr}`,
+      images: ['/og-default.png'],
+      type: 'profile',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${display} · MnStr · Watch`,
+      description: desc,
+      images: ['/og-default.png'],
+    },
+  };
+}
 
 const TIER_COLOR: Record<string, string> = {
   Starter: 'var(--tier-blue)',

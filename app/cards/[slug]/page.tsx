@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCardDetail } from '@/lib/queries';
@@ -12,8 +13,42 @@ import {
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 300;
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const card = await getCardDetail(slug);
+  if (!card) {
+    return { title: 'Card not found', robots: { index: false, follow: false } };
+  }
+  const title = card.title ?? slug;
+  const setPart = card.card_set ?? 'unknown set';
+  const fmv = card.last_fmv != null ? `$${Math.round(card.last_fmv).toLocaleString('en-US')}` : null;
+  const desc = [
+    `${title} from ${setPart}`,
+    card.grading ? `· ${card.grading}` : null,
+    `· pulled ${card.pulls_total.toLocaleString('en-US')} time${card.pulls_total === 1 ? '' : 's'}`,
+    fmv ? `· vault FMV ${fmv}` : null,
+  ].filter(Boolean).join(' ');
+  return {
+    title: `${title}${card.grading ? ` · ${card.grading}` : ''}`,
+    description: desc,
+    alternates: { canonical: `/cards/${slug}` },
+    openGraph: {
+      title,
+      description: desc,
+      url: `/cards/${slug}`,
+      images: card.image_front ? [card.image_front] : ['/og-default.png'],
+      type: 'article',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description: desc,
+      images: card.image_front ? [card.image_front] : ['/og-default.png'],
+    },
+  };
+}
 
 function shortAddr(a: string): string {
   return a.slice(0, 6) + '…' + a.slice(-4);

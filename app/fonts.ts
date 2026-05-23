@@ -1,17 +1,14 @@
 import { GeistSans } from 'geist/font/sans';
-import { JetBrains_Mono, VT323 } from 'next/font/google';
+import { JetBrains_Mono, VT323, UnifrakturCook } from 'next/font/google';
 
-// Geist Sans — Foil body font.
 export const fontSans = GeistSans;
 
-// JetBrains Mono — universal mono / Arcade body.
 export const fontMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-mono',
   display: 'swap',
 });
 
-// VT323 — Arcade display font (CRT title bars, big numerics).
 export const fontDisplay = VT323({
   subsets: ['latin'],
   weight: '400',
@@ -19,4 +16,12 @@ export const fontDisplay = VT323({
   display: 'swap',
 });
 
-export const fontClasses = `${fontSans.variable} ${fontMono.variable} ${fontDisplay.variable}`;
+// Blackletter — Foil brand wordmark ("Mn$tr").
+export const fontBlackletter = UnifrakturCook({
+  subsets: ['latin'],
+  weight: '700',
+  variable: '--font-blackletter',
+  display: 'swap',
+});
+
+export const fontClasses = `${fontSans.variable} ${fontMono.variable} ${fontDisplay.variable} ${fontBlackletter.variable}`;

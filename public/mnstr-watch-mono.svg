@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 280" width="240" height="280" color="currentColor">
+  <g transform="translate(120 14)">
+    <rect x="-14" y="0" width="28" height="30" rx="14" fill="none" stroke="currentColor" stroke-width="5"></rect>
+    <rect x="-9" y="22" width="18" height="22" rx="3" fill="currentColor" opacity="0.18"></rect>
+    <circle cx="0" cy="33" r="4" fill="none" stroke="currentColor" stroke-width="1.4"></circle>
+  </g>
+  <g transform="translate(20 56)" fill="none" stroke="currentColor">
+    <polygon points="58,4 142,4 196,58 196,142 142,196 58,196 4,142 4,58" stroke-width="2"></polygon>
+    <polygon points="64,12 136,12 188,64 188,136 136,188 64,188 12,136 12,64" stroke-width="1.5"></polygon>
+    <polygon points="74,28 126,28 172,74 172,126 126,172 74,172 28,126 28,74" stroke-width="1.4"></polygon>
+    <g fill="currentColor">
+      <polygon points="100,15 106,18 106,24 100,27 94,24 94,18"></polygon>
+      <polygon points="166,40 172,43 172,49 166,52 160,49 160,43"></polygon>
+      <polygon points="178,93 184,96 184,102 178,105 172,102 172,96"></polygon>
+      <polygon points="166,153 172,156 172,162 166,165 160,162 160,156"></polygon>
+      <polygon points="100,178 106,181 106,187 100,190 94,187 94,181"></polygon>
+      <polygon points="34,153 40,156 40,162 34,165 28,162 28,156"></polygon>
+      <polygon points="22,93 28,96 28,102 22,105 16,102 16,96"></polygon>
+      <polygon points="34,40 40,43 40,49 34,52 28,49 28,43"></polygon>
+    </g>
+    <g fill="currentColor">
+      <rect x="98" y="38" width="4" height="8"></rect>
+      <rect x="98" y="154" width="4" height="8"></rect>
+      <rect x="38" y="98" width="8" height="4"></rect>
+      <rect x="154" y="98" width="8" height="4"></rect>
+    </g>
+    <text x="100" y="148" font-family="UnifrakturCook, serif" font-size="26" fill="currentColor" text-anchor="middle" font-weight="700" stroke="none">Mn$tr</text>
+    <text x="101" y="162" font-family="JetBrains Mono, monospace" font-size="6.5" fill="currentColor" text-anchor="middle" letter-spacing="3" stroke="none">·  W  A  T  C  H  ·</text>
+  </g>
+</svg>

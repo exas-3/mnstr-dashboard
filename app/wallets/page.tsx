@@ -1,11 +1,18 @@
+import type { Metadata } from 'next';
 import { getLeaderboard, getLeaderboardKpis, type WalletSort } from '@/lib/queries';
 import { KpiTile, Mono } from '@/components/primitives';
 import SortBar from '@/components/wallets/SortBar';
 import WalletSearchBar from '@/components/wallets/WalletSearchBar';
 import LeaderboardSection from '@/components/wallets/LeaderboardSection';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60;
+
+export const metadata: Metadata = {
+  title: 'Wallets · MnStr leaderboard',
+  description:
+    'Top MnStr wallets ranked by net P&L, spend, and pulls. 500-wallet leaderboard with live ladder chart.',
+  alternates: { canonical: '/wallets' },
+};
 
 const PAGE_SIZE = 25;
 

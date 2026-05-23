@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { cookies } from 'next/headers';
 import './globals.css';
 import { fontClasses } from './fonts';
@@ -13,9 +13,45 @@ const PLAUSIBLE_SRC =
   process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ||
   'http://localhost:3001/js/pa-otWkGMENf8W9OIVErtvJY.js';
 
+// Canonical origin for OG / Twitter / sitemap resolution. Defaults to the
+// future production domain; override via env for staging or to keep the IP
+// canonical until the DNS cutover happens.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://mnstr.watch';
+
 export const metadata: Metadata = {
-  title: 'MnStr — On-chain gacha analytics',
-  description: 'Live analytics for the MnStr gacha on MegaETH',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'MnStr · Watch — Live MnStr gacha analytics on MegaETH',
+    template: '%s · MnStr · Watch',
+  },
+  description: 'A treasury of monsters. Public dashboard for the MnStr gacha card vault on MegaETH.',
+  applicationName: 'MnStr · Watch',
+  alternates: { canonical: '/' },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+  },
+  openGraph: {
+    title: 'MnStr · Watch',
+    description: 'Live analytics for the MnStr gacha vault on MegaETH.',
+    siteName: 'MnStr · Watch',
+    url: '/',
+    images: ['/og-default.png'],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'MnStr · Watch',
+    description: 'A treasury of monsters. Live analytics for the MnStr gacha on MegaETH.',
+    images: ['/og-default.png'],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#d6a04a',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

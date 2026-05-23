@@ -101,7 +101,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
         </div>
       )}
 
-      <SectionHead tag="01 · WINDOW · 24H" title="Right now" />
+      <SectionHead tag="WINDOW · 24H" title="Right now" />
       <div className="mx-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <KpiTile label="Packs" value={data.kpis.packs.toLocaleString('en-US')} />
         <KpiTile label="USDm" value={abbrUsd(data.kpis.usdmCycledUsd)} />
@@ -109,11 +109,15 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
         <KpiTile label="Big hits" value={String(big)} />
       </div>
 
-      <SectionHead tag="02 · STREAM" title="Latest pulls" right="NEWEST FIRST" />
-      <LiveHero pull={newest} />
+      <SectionHead tag="STREAM" title="Latest pulls" right="NEWEST FIRST" />
 
-      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {rest.map(it => {
+      <div className="lg:grid lg:gap-3 lg:px-2" style={{ gridTemplateColumns: '2fr 3fr' }}>
+        <div className="lg:min-w-0">
+          <LiveHero pull={newest} />
+        </div>
+
+        <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-4 lg:mx-0 lg:mt-0">
+          {rest.map(it => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
           const cardImage = (
@@ -166,6 +170,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
             </div>
           );
         })}
+        </div>
       </div>
 
       {!embed && (

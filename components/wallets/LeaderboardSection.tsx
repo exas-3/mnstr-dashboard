@@ -13,6 +13,7 @@ import { Mono, SectionHead } from '../primitives';
 import LeaderboardRow from './LeaderboardRow';
 import PnlLadder from './PnlLadder';
 import EmptyState from '../EmptyState';
+import WalletPreviewPane from './WalletPreviewPane';
 import type { LadderRow, WalletRow, WalletSort } from '@/lib/queries';
 
 const PAGE_SIZE = 25;
@@ -77,76 +78,84 @@ export default function LeaderboardSection({
   }
 
   return (
-    <>
-      {/* Ladder: tracks the current table state, redraws as rows grow. */}
-      <SectionHead
-        tag="01 · LADDER"
-        title={
-          sort === 'pnl' ? 'Net P&L distribution'
-          : sort === 'spend' ? 'Top spenders'
-          : 'Most pulls'
-        }
-        right={`${rows.length.toLocaleString('en-US')} of ${cap.toLocaleString('en-US')}`}
-      />
-      <PnlLadder rows={ladderRows} sort={sort} />
+    <div className="xl:grid xl:gap-4 xl:px-2" style={{ gridTemplateColumns: '1fr 320px' }}>
+      <div className="xl:min-w-0">
+        {/* Ladder: tracks the current table state, redraws as rows grow. */}
+        <SectionHead
+          tag="LADDER"
+          title={
+            sort === 'pnl' ? 'Net P&L distribution'
+            : sort === 'spend' ? 'Top spenders'
+            : 'Most pulls'
+          }
+          right={`${rows.length.toLocaleString('en-US')} of ${cap.toLocaleString('en-US')}`}
+        />
+        <PnlLadder rows={ladderRows} sort={sort} />
 
-      {/* Table */}
-      <SectionHead
-        tag="02 · TABLE"
-        title={`Sorted by ${sortLabel}`}
-        right={`${initialTotal.toLocaleString('en-US')} WALLETS`}
-      />
-      {rows.length === 0 ? (
-        <EmptyState title="NO WALLETS" sub="No handle or address matched." />
-      ) : (
-        <div
-          className="mx-3"
-          style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
-        >
-          {rows.map((r, i) => (
-            <LeaderboardRow key={r.wallet} row={r} first={i === 0} sort={sort} />
-          ))}
-        </div>
-      )}
-
-      {/* Load more — disabled when we've hit MAX_ROWS or search is active. */}
-      {!q && remaining > 0 && (
-        <div className="px-4 pt-5 pb-2 text-center">
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loading}
-            className="inline-block"
-            style={{
-              padding: '10px 18px',
-              color: loading ? 'var(--fg-4)' : 'var(--accent)',
-              border: `1px solid ${loading ? 'var(--line)' : 'color-mix(in oklch, var(--accent) 33%, transparent)'}`,
-              background: loading ? 'transparent' : 'color-mix(in oklch, var(--accent) 5%, transparent)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10.5,
-              letterSpacing: '0.14em',
-              cursor: loading ? 'wait' : 'pointer',
-            }}
+        {/* Table */}
+        <SectionHead
+          tag="TABLE"
+          title={`Sorted by ${sortLabel}`}
+          right={`${initialTotal.toLocaleString('en-US')} WALLETS`}
+        />
+        {rows.length === 0 ? (
+          <EmptyState title="NO WALLETS" sub="No handle or address matched." />
+        ) : (
+          <div
+            className="mx-3 xl:mx-0"
+            style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
           >
-            {loading ? 'LOADING…' : `LOAD MORE · ${remaining.toLocaleString('en-US')} LEFT`}
-          </button>
-        </div>
-      )}
+            {rows.map((r, i) => (
+              <LeaderboardRow key={r.wallet} row={r} first={i === 0} sort={sort} />
+            ))}
+          </div>
+        )}
 
-      {/* Cap reached */}
-      {!q && remaining === 0 && rows.length >= MAX_ROWS && (
-        <div className="px-4 pt-3 pb-2 text-center">
-          <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)' }}>
-            showing top {MAX_ROWS.toLocaleString('en-US')} of {initialTotal.toLocaleString('en-US')}
-          </Mono>
-        </div>
-      )}
+        {/* Load more — disabled when we've hit MAX_ROWS or search is active. */}
+        {!q && remaining > 0 && (
+          <div className="px-4 pt-5 pb-2 text-center">
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loading}
+              className="inline-block"
+              style={{
+                padding: '10px 18px',
+                color: loading ? 'var(--fg-4)' : 'var(--accent)',
+                border: `1px solid ${loading ? 'var(--line)' : 'color-mix(in oklch, var(--accent) 33%, transparent)'}`,
+                background: loading ? 'transparent' : 'color-mix(in oklch, var(--accent) 5%, transparent)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10.5,
+                letterSpacing: '0.14em',
+                cursor: loading ? 'wait' : 'pointer',
+              }}
+            >
+              {loading ? 'LOADING…' : `LOAD MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+            </button>
+          </div>
+        )}
 
-      {error && (
-        <div className="px-4 pt-2 pb-2 text-center">
-          <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
-        </div>
-      )}
-    </>
+        {/* Cap reached */}
+        {!q && remaining === 0 && rows.length >= MAX_ROWS && (
+          <div className="px-4 pt-3 pb-2 text-center">
+            <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)' }}>
+              showing top {MAX_ROWS.toLocaleString('en-US')} of {initialTotal.toLocaleString('en-US')}
+            </Mono>
+          </div>
+        )}
+
+        {error && (
+          <div className="px-4 pt-2 pb-2 text-center">
+            <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
+          </div>
+        )}
+      </div>
+
+      {/* Master-detail preview pane (xl+ only). Reflects the table's current top
+       * rows — grows in sync since `rows` is shared state. */}
+      <div className="hidden xl:block xl:pt-2">
+        <WalletPreviewPane rows={rows} />
+      </div>
+    </div>
   );
 }

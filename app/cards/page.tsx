@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getCardsList, getVaultStats, type CardView } from '@/lib/queries';
 import { KpiTile, Mono, SectionHead, tierLabel } from '@/components/primitives';
 import FilterChips from '@/components/cards/FilterChips';
@@ -6,8 +7,14 @@ import CardWallTile from '@/components/cards/CardWallTile';
 import CardsLoadMore from '@/components/cards/CardsLoadMore';
 import EmptyState from '@/components/EmptyState';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60;
+
+export const metadata: Metadata = {
+  title: 'Cards · The vault',
+  description:
+    "Browse every card pulled from MnStr packs, filtered by tier and ranked by FMV or pull count. PSA-graded slabs held in MnStr's vault.",
+  alternates: { canonical: '/cards' },
+};
 
 const PAGE_SIZE = 24;
 
@@ -88,12 +95,12 @@ export default async function CardsPage({
         <KpiTile label="Cards pulled" value={vault.cardsPulled.toLocaleString('en-US')} />
       </div>
 
-      <SectionHead tag="01 · THE WALL" title={`${viewLabel}${tierSub}`} right="TAP TO OPEN" />
+      <SectionHead tag="THE WALL" title={`${viewLabel}${tierSub}`} right="TAP TO OPEN" />
 
       {list.rows.length === 0 ? (
         <EmptyState title="NO CARDS" sub="Try a different search or filter." />
       ) : (
-        <div className="mx-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="mx-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
           {list.rows.map(c => (
             <CardWallTile key={c.slug} card={c} />
           ))}

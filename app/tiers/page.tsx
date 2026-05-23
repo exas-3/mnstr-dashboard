@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import {
   getTierEconomics,
   getTierFMVDistribution,
@@ -6,13 +7,21 @@ import {
 } from '@/lib/queries';
 import { Lbl, Mono, SectionHead } from '@/components/primitives';
 import TierPicker from '@/components/tiers/TierPicker';
+import TierHeroRow from '@/components/tiers/TierHeroRow';
 import ViolinChart from '@/components/tiers/ViolinChart';
 import SoldBackChart from '@/components/tiers/SoldBackChart';
 import EconGrid from '@/components/tiers/EconGrid';
 import OutlierRow from '@/components/tiers/OutlierRow';
+import type { TierEconomics } from '@/lib/queries';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60;
+
+export const metadata: Metadata = {
+  title: 'Tiers · Pack economics',
+  description:
+    'House edge, expected value, sold-back rates, and FMV distribution for every MnStr pack tier — Starter, Monster, Ultra.',
+  alternates: { canonical: '/tiers' },
+};
 
 const TIER_ORDER = ['Starter', 'Premium', 'Ultra'] as const;
 type TierName = (typeof TIER_ORDER)[number];
@@ -53,20 +62,34 @@ export default async function TiersPage({
   // and felt out of place next to the other figures.
   const mode = 'realised';
 
-  const [econ, dist, soldBackTrend, outliers] = await Promise.all([
-    getTierEconomics(tier, mode),
-    getTierFMVDistribution(tier),
-    getSoldBackRateOverTime(tier, 12),
-    getTierOutliers(tier, 5),
-  ]);
+  const [econ, dist, soldBackTrend, outliers, econStarter, econPremium, econUltra] =
+    await Promise.all([
+      getTierEconomics(tier, mode),
+      getTierFMVDistribution(tier),
+      getSoldBackRateOverTime(tier, 12),
+      getTierOutliers(tier, 5),
+      getTierEconomics('Starter', mode),
+      getTierEconomics('Premium', mode),
+      getTierEconomics('Ultra', mode),
+    ]);
+
+  const econs: Record<string, TierEconomics> = {
+    Starter: econStarter,
+    Premium: econPremium,
+    Ultra: econUltra,
+  };
 
   return (
     <div className="pb-6">
-      <TierPicker value={tier} />
+      {/* Desktop: 3-up tier comparison. Mobile/tablet: TierPicker. */}
+      <TierHeroRow econs={econs} active={tier} />
+      <div className="lg:hidden">
+        <TierPicker value={tier} />
+      </div>
 
-      {/* House-edge hero */}
+      {/* House-edge hero — only on mobile/tablet (the hero row replaces it on lg+). */}
       <div
-        className="mx-3 mt-3 px-3.5 py-3.5"
+        className="mx-3 mt-3 px-3.5 py-3.5 lg:hidden"
         style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
       >
         <Lbl style={{ fontSize: 8.5 }}>House edge</Lbl>
@@ -107,16 +130,20 @@ export default async function TiersPage({
         </div>
       </div>
 
-      {/* Violin */}
-      <SectionHead tag="01 · DIST" title="Pulled FMV distribution" right="LOG SCALE" />
-      <ViolinChart data={dist} />
-
-      {/* Sold-back trend */}
-      <SectionHead tag="02 · TREND" title="Sold-back rate over time" right="12 WK" />
-      <SoldBackChart data={soldBackTrend} weeks={12} />
+      {/* Violin + Sold-back trend — side-by-side on lg+ */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:px-2">
+        <div>
+          <SectionHead tag="DIST" title="Pulled FMV distribution" right="LOG SCALE" />
+          <ViolinChart data={dist} />
+        </div>
+        <div>
+          <SectionHead tag="TREND" title="Sold-back rate over time" right="12 WK" />
+          <SoldBackChart data={soldBackTrend} weeks={12} />
+        </div>
+      </div>
 
       {/* Econ grid */}
-      <SectionHead tag="03 · BOOK" title="Pack economics" />
+      <SectionHead tag="BOOK" title="Pack economics" />
       <EconGrid
         items={[
           { label: 'Cycled in',           value: abbrUsd(econ.revenue) },
@@ -140,7 +167,7 @@ export default async function TiersPage({
       />
 
       {/* Outliers */}
-      <SectionHead tag="04 · OUTLIERS" title="Biggest pulls · this tier" right="ALL-TIME" />
+      <SectionHead tag="OUTLIERS" title="Biggest pulls · this tier" right="ALL-TIME" />
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         {outliers.length === 0 ? (
           <div className="px-3 py-5 text-center">
