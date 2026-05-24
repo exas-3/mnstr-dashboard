@@ -113,12 +113,42 @@ async function makeOg() {
   console.log('✓ wrote og-default.png (1200×630)');
 }
 
+/* Composite a versioned favicon.svg that embeds the mascot directly inside the
+ * watch SVG, so browsers using the SVG favicon (Chrome / Firefox / Safari 16+)
+ * see the same artwork as the PNG fallbacks. The composite uses the same
+ * 60% width, top: 53% positioning as <MnstrWatch> in the live UI. */
+async function makeFaviconSvg() {
+  const watch = WATCH_SVG.toString('utf-8');
+  const mascot = MASCOT_SVG.toString('utf-8');
+
+  // Pull just the inner content out of mascot.svg (drop <svg ...> wrapper).
+  const inner = mascot.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
+
+  // Watch viewBox is 240×280; mascot viewBox 680×305. Render mascot at 60% of
+  // watch width (144 units), preserving its aspect ratio (~64.6 units tall).
+  const mascotWidth = 144;
+  const mascotScale = mascotWidth / 680;
+  const mascotHeight = 305 * mascotScale;
+  const cx = 120;     // viewBox center horizontally
+  const cy = 280 * 0.53;
+  const tx = cx - mascotWidth / 2;
+  const ty = cy - mascotHeight / 2;
+
+  const mascotGroup =
+    `\n  <g transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${mascotScale.toFixed(6)})" aria-hidden="true">${inner}</g>\n`;
+
+  const composited = watch.replace(/<\/svg>\s*$/, `${mascotGroup}</svg>`);
+  writeFileSync(join(PUBLIC, 'favicon.svg'), composited, 'utf-8');
+  console.log('✓ wrote favicon.svg (watch + mascot composite)');
+}
+
 async function main() {
   await makeFavicon(32, 'favicon-32.png');
   await makeFavicon(192, 'favicon-192.png');
   await makeFavicon(512, 'favicon-512.png');
   await makeFavicon(180, 'apple-touch-icon.png');
   await makeOg();
+  await makeFaviconSvg();
   console.log('done.');
 }
 
