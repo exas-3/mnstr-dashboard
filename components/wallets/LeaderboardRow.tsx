@@ -6,12 +6,12 @@ function shortAddr(a: string): string {
   return a.slice(0, 6) + '…' + a.slice(-4);
 }
 
-function abbrUsd(n: number): string {
+/* Full-precision integer dollars with thousands separators ($10,642 / -$50).
+ * Used for spend + net on the wallets leaderboard so scanning by value
+ * doesn't lose the trailing digits to "10.6k"-style rounding. */
+function usdInt(n: number): string {
   const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${Math.round(abs)}`;
+  return `${sign}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 }
 
 /* Row layout adapts to the active sort:
@@ -67,7 +67,7 @@ export default function LeaderboardRow({
           </div>
           {sort !== 'spend' && (
             <Mono style={{ fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2, display: 'block' }}>
-              {abbrUsd(row.spend)} spent
+              {usdInt(row.spend)} spent
             </Mono>
           )}
         </div>
@@ -75,12 +75,12 @@ export default function LeaderboardRow({
           {sort === 'pnl' && (
             <Mono style={{ fontSize: 13, color: pnlColor, display: 'block' }}>
               {isPos ? '+' : ''}
-              {abbrUsd(row.net)}
+              {usdInt(row.net)}
             </Mono>
           )}
           {sort === 'spend' && (
             <Mono style={{ fontSize: 13, color: 'var(--fg)', display: 'block' }}>
-              {abbrUsd(row.spend)}
+              {usdInt(row.spend)}
             </Mono>
           )}
           {sort === 'pulls' && (

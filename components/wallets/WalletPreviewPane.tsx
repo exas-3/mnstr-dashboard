@@ -6,12 +6,12 @@ function shortAddr(a: string): string {
   return a.slice(0, 6) + '…' + a.slice(-4);
 }
 
-function abbrUsd(n: number): string {
+/* Full-precision integer dollars with thousands separators ($10,642 / -$50).
+ * Matches the leaderboard rows next to it — keeps scanning the spotlight + the
+ * list visually consistent. */
+function usdInt(n: number): string {
   const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${Math.round(abs)}`;
+  return `${sign}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 }
 
 /* Sticky desktop-only preview pane that puts a face on the leaderboard:
@@ -80,14 +80,14 @@ export default function WalletPreviewPane({ rows }: { rows: WalletRow[] }) {
           }}
         >
           {isPos ? '+' : ''}
-          {abbrUsd(top.net)}
+          {usdInt(top.net)}
         </Mono>
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', marginTop: 4, display: 'block' }}>
           NET P&L
         </Mono>
 
         <div className="mt-4 grid grid-cols-2 gap-2" style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 10 }}>
-          <Stat label="SPEND" value={abbrUsd(top.spend)} />
+          <Stat label="SPEND" value={usdInt(top.spend)} />
           <Stat label="PULLS" value={top.pulls.toLocaleString('en-US')} />
         </div>
 
@@ -146,7 +146,7 @@ export default function WalletPreviewPane({ rows }: { rows: WalletRow[] }) {
                   </span>
                   <Mono style={{ fontSize: 11, color: c }}>
                     {pos ? '+' : ''}
-                    {abbrUsd(row.net)}
+                    {usdInt(row.net)}
                   </Mono>
                 </Link>
               );
