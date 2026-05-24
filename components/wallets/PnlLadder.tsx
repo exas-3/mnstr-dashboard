@@ -4,6 +4,9 @@ import type { LadderRow, WalletSort } from '@/lib/queries';
 const W = 360;
 const H = 130;
 
+/* Compact form is kept ONLY for y-axis tick labels (the chart is ~360px wide
+ * so a `$200,000` label there would eat half the row). Everywhere else we
+ * show full integers per the wallets-page convention. */
 function fmtCompact(n: number, asUsd: boolean): string {
   const sign = n < 0 ? '-' : '';
   const abs = Math.abs(n);
@@ -13,6 +16,12 @@ function fmtCompact(n: number, asUsd: boolean): string {
     return `${sign}$${Math.round(abs).toLocaleString('en-US')}`;
   }
   return Math.round(abs).toLocaleString('en-US');
+}
+
+function fmtFull(n: number, asUsd: boolean): string {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.round(Math.abs(n));
+  return asUsd ? `${sign}$${abs.toLocaleString('en-US')}` : abs.toLocaleString('en-US');
 }
 
 export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: WalletSort }) {
@@ -78,7 +87,7 @@ export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: Wal
           {titleLabel} · top {sorted.length.toLocaleString('en-US')} wallets
         </Lbl>
         <Mono style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--fg-4)' }}>
-          LOG · Σ {fmtCompact(sumAll, asUsd)}
+          LOG · Σ {fmtFull(sumAll, asUsd)}
         </Mono>
       </div>
       <svg
@@ -137,7 +146,7 @@ export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: Wal
             >
               {showTooltips && (
                 <title>
-                  {r.handle ?? r.wallet}: {fmtCompact(r.value, asUsd)}
+                  {r.handle ?? r.wallet}: {fmtFull(r.value, asUsd)}
                 </title>
               )}
             </rect>
@@ -154,7 +163,7 @@ export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: Wal
             fontSize="9"
             fill={palette}
           >
-            ▴ {top.handle ?? top.wallet.slice(0, 6) + '…' + top.wallet.slice(-4)} · {fmtCompact(top.value, asUsd)}
+            ▴ {top.handle ?? top.wallet.slice(0, 6) + '…' + top.wallet.slice(-4)} · {fmtFull(top.value, asUsd)}
           </text>
         )}
       </svg>
