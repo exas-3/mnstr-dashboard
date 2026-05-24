@@ -17,7 +17,7 @@ export interface BackfillOpts {
   fromDeploy?: boolean;
 }
 
-async function insertLogs(c: Contract, logs: PlayAssignedLog[]): Promise<number> {
+export async function insertPullLogs(c: Contract, logs: PlayAssignedLog[]): Promise<number> {
   if (logs.length === 0) return 0;
   // postgres.js batch insert
   const values = logs.map(l => ({
@@ -77,7 +77,7 @@ export async function backfillContract(
   while (cursor <= latest) {
     const to = Math.min(cursor + CHUNK_BLOCKS - 1, latest);
     const logs = await getPullLogs(c.address, cursor, to);
-    const inserted = await insertLogs(c, logs);
+    const inserted = await insertPullLogs(c, logs);
     totalInserted += inserted;
     console.log(
       `[backfill ${c.tier}] blocks ${cursor}..${to}: fetched=${logs.length} inserted=${inserted} total=${totalInserted}`,

@@ -32,7 +32,7 @@ function isUsable<T extends { logIndex: number; blockNumber: number }>(l: T, kin
   return true;
 }
 
-async function insertSales(logs: CardBoughtLog[]): Promise<number> {
+export async function insertSales(logs: CardBoughtLog[]): Promise<number> {
   const usable = logs.filter(l => isUsable(l, 'sale'));
   if (usable.length === 0) return 0;
   const values = usable.map(l => ({
@@ -54,7 +54,7 @@ async function insertSales(logs: CardBoughtLog[]): Promise<number> {
   return result.count ?? 0;
 }
 
-async function insertPriceUpdates(logs: CardPriceUpdatedLog[]): Promise<number> {
+export async function insertPriceUpdates(logs: CardPriceUpdatedLog[]): Promise<number> {
   const usable = logs.filter(l => isUsable(l, 'price-update'));
   if (usable.length === 0) return 0;
   const values = usable.map(l => ({

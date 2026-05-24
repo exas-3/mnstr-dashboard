@@ -18,7 +18,7 @@ export interface BackfillSellbacksOpts {
   fromDeploy?: boolean;
 }
 
-async function insertSellbacks(logs: NFTSoldBackLog[]): Promise<{ inserted: number; orphans: number }> {
+export async function insertSellbacks(logs: NFTSoldBackLog[]): Promise<{ inserted: number; orphans: number }> {
   if (logs.length === 0) return { inserted: 0, orphans: 0 };
 
   // Pre-filter against pulls to avoid FK violations from the inherent race

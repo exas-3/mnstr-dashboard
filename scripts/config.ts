@@ -6,17 +6,28 @@ function required(name: string): string {
   return v;
 }
 
+function deriveWsUrl(httpsUrl: string): string {
+  return httpsUrl.replace(/^https:\/\//, 'wss://');
+}
+
+const ALCHEMY_RPC = required('ALCHEMY_RPC');
+
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   chainId: Number(process.env.CHAIN_ID ?? 4326),
   rpcUrl: process.env.RPC_URL ?? 'https://mainnet.megaeth.com/rpc',
-  alchemyRpc: required('ALCHEMY_RPC'),
+  alchemyRpc: ALCHEMY_RPC,
+  // Alchemy supports the same key over wss:// — used by the live indexer
+  // (scripts/ws.ts). Override via ALCHEMY_WS_URL if your provider is different.
+  alchemyWsUrl: process.env.ALCHEMY_WS_URL ?? deriveWsUrl(ALCHEMY_RPC),
   etherscanKey: required('ETHERSCAN_KEY'),
   mnstrApi: process.env.MNSTR_API ?? 'https://api.mnstr.xyz',
 
   enrichConcurrency: Number(process.env.ENRICH_CONCURRENCY ?? 4),
   enrichRps: Number(process.env.ENRICH_RPS ?? 8),
-  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 10_000),
+  // Cadence of the RECONCILE poll (used as a backstop for WS gaps). Default
+  // 5min since the WS listener handles real-time. Pre-WS default was 10s.
+  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 300_000),
   restatusAgeHours: Number(process.env.RESTATUS_AGE_HOURS ?? 24),
 };
 

@@ -62,11 +62,26 @@ async function fetchJson<T>(url: string, attempt = 0): Promise<T> {
   }
 }
 
-function topicToAddress(topic: string): string {
+export function topicToAddress(topic: string): string {
   return ('0x' + topic.slice(-40)).toLowerCase();
 }
 
-function decode(log: EtherscanLog): PlayAssignedLog {
+/* Both `EtherscanLog` (REST poll) and `AlchemyWsLog` (websocket) share the
+ * same field set EXCEPT WS logs lack `timeStamp` (you fetch that from the
+ * block separately). These two adapters let the WS path reuse the same
+ * decoders. */
+export type RawLog = {
+  address: string;
+  topics: string[];
+  data: string;
+  blockNumber: string;
+  timeStamp: string;        // hex unix seconds
+  logIndex: string;
+  transactionHash: string;
+  transactionIndex: string;
+};
+
+export function decode(log: RawLog): PlayAssignedLog {
   return {
     contract: log.address.toLowerCase(),
     blockNumber: parseInt(log.blockNumber, 16),
@@ -174,6 +189,18 @@ export interface NFTSoldBackLog {
   requestId: bigint;
 }
 
+export function decodeSellback(log: RawLog): NFTSoldBackLog {
+  return {
+    contract: log.address.toLowerCase(),
+    blockNumber: parseInt(log.blockNumber, 16),
+    txHash: log.transactionHash,
+    logIndex: parseInt(log.logIndex, 16),
+    timestamp: parseInt(log.timeStamp, 16),
+    player: topicToAddress(log.topics[1]),
+    requestId: BigInt(log.topics[2]),
+  };
+}
+
 /**
  * Fetch NFTSoldBack(player, playId) logs for one contract in [fromBlock, toBlock].
  * Same pagination strategy as getPullLogs.
@@ -184,15 +211,7 @@ export async function getSellbackLogs(
   toBlock: number,
 ): Promise<NFTSoldBackLog[]> {
   const logs = await fetchTopicLogs(address, NFT_SOLD_BACK_TOPIC, fromBlock, toBlock);
-  return logs.map(l => ({
-    contract: l.address.toLowerCase(),
-    blockNumber: parseInt(l.blockNumber, 16),
-    txHash: l.transactionHash,
-    logIndex: parseInt(l.logIndex, 16),
-    timestamp: parseInt(l.timeStamp, 16),
-    player: topicToAddress(l.topics[1]),
-    requestId: BigInt(l.topics[2]),
-  }));
+  return logs.map(decodeSellback);
 }
 
 // --- CardMarketplace events ---
@@ -226,7 +245,7 @@ function decodeAbiString(hex: string, offsetBytes: number): string {
   return Buffer.from(strHex, 'hex').toString('utf8');
 }
 
-function decodeCardBought(log: EtherscanLog): CardBoughtLog {
+export function decodeCardBought(log: RawLog): CardBoughtLog {
   const hex = log.data.slice(2);
   const offset = parseInt(hex.slice(0, 64), 16);
   const priceWei = BigInt('0x' + hex.slice(64, 128));
@@ -241,7 +260,7 @@ function decodeCardBought(log: EtherscanLog): CardBoughtLog {
   };
 }
 
-function decodeCardPriceUpdated(log: EtherscanLog): CardPriceUpdatedLog {
+export function decodeCardPriceUpdated(log: RawLog): CardPriceUpdatedLog {
   const hex = log.data.slice(2);
   const offset = parseInt(hex.slice(0, 64), 16);
   const oldPriceWei = BigInt('0x' + hex.slice(64, 128));
