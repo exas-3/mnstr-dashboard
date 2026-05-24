@@ -31,6 +31,7 @@
   --tier-blue:    oklch(0.72 0.14 240);
   --tier-amber:   var(--accent);
   --tier-magenta: var(--negative);
+  --tier-cyan:    oklch(0.78 0.14 200);  /* Adventure (One Piece) */
 
   /* Typography */
   --font-sans:    var(--font-geist-sans, ui-sans-serif, system-ui);
@@ -69,6 +70,7 @@
   --tier-blue:   oklch(0.78 0.16 220);
   --tier-amber:  oklch(0.88 0.18 90);
   --tier-magenta:oklch(0.78 0.22 330);
+  --tier-cyan:   oklch(0.82 0.18 200);  /* Adventure */
 
   /* Typography */
   --font-sans:    var(--font-mono, ui-monospace, monospace);
@@ -101,6 +103,7 @@
   --color-tier-blue:    var(--tier-blue);
   --color-tier-amber:   var(--tier-amber);
   --color-tier-magenta: var(--tier-magenta);
+  --color-tier-cyan:    var(--tier-cyan);
   --font-sans:    var(--font-sans);
   --font-mono:    var(--font-mono);
   --font-display: var(--font-display);

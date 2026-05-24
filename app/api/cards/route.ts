@@ -12,9 +12,9 @@ const PAGE_SIZE = 24;
 function isView(v: unknown): v is CardView {
   return v === 'top' || v === 'most' || v === 'recent';
 }
-type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra';
+type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
 function isTier(v: unknown): v is Tier {
-  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra';
+  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
 }
 
 export async function GET(req: Request) {

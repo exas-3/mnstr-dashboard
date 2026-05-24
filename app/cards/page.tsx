@@ -23,10 +23,11 @@ const VIEW_CHIPS = [
   { id: 'most' as const, label: 'Most pulled' },
 ];
 const TIER_CHIPS = [
-  { id: 'all'     as const, label: 'All tiers' },
-  { id: 'Starter' as const, label: 'Starter'   },
-  { id: 'Premium' as const, label: 'Monster'   },
-  { id: 'Ultra'   as const, label: 'Ultra'     },
+  { id: 'all'       as const, label: 'All tiers' },
+  { id: 'Starter'   as const, label: 'Starter'   },
+  { id: 'Premium'   as const, label: 'Monster'   },
+  { id: 'Ultra'     as const, label: 'Ultra'     },
+  { id: 'Adventure' as const, label: 'Adventure' },
 ];
 
 type Tier = (typeof TIER_CHIPS)[number]['id'];
@@ -37,7 +38,7 @@ function isView(v: unknown): v is CardView {
   return v === 'top' || v === 'most';
 }
 function isTier(v: unknown): v is Tier {
-  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra';
+  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
 }
 
 function buildHref(opts: { view: CardView; tier: Tier; q?: string; page?: number }): string {

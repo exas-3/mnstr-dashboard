@@ -2,9 +2,10 @@ import { Mono, TierTag, type Tier } from '../primitives';
 import type { TierStats } from '@/lib/queries';
 
 const COLOR: Record<string, string> = {
-  Starter: 'var(--tier-blue)',
-  Premium: 'var(--accent)',
-  Ultra:   'var(--tier-magenta)',
+  Starter:   'var(--tier-blue)',
+  Premium:   'var(--accent)',
+  Ultra:     'var(--tier-magenta)',
+  Adventure: 'var(--tier-cyan)',
 };
 
 export default function TierStrip({ stats }: { stats: TierStats[] }) {

@@ -8,17 +8,18 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 
-export type Tier = 'Starter' | 'Premium' | 'Ultra';
+export type Tier = 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
 export type Status = 'holding' | 'sold_back' | 'redeemed';
 
 /* MnStr labels Premium as "Monster" in their UI — but Arcade uses 3-letter
  * codes everywhere, so this is `MON` here vs `Monster` in Foil. */
 export function tierCode(tier: string): string {
   switch (tier) {
-    case 'Starter': return 'STA';
-    case 'Premium': return 'MON';
-    case 'Ultra':   return 'ULT';
-    default:        return tier.slice(0, 3).toUpperCase();
+    case 'Starter':   return 'STA';
+    case 'Premium':   return 'MON';
+    case 'Ultra':     return 'ULT';
+    case 'Adventure': return 'ADV';
+    default:          return tier.slice(0, 3).toUpperCase();
   }
 }
 
@@ -191,9 +192,10 @@ export function AsciiKpi({
  * ───────────────────────────────────────────────────────────── */
 
 const TIER_COLOR: Record<Tier, string> = {
-  Starter: 'var(--tier-blue)',
-  Premium: 'var(--accent)',     // amber in arcade palette
-  Ultra:   'var(--tier-magenta)',
+  Starter:   'var(--tier-blue)',
+  Premium:   'var(--accent)',     // amber in arcade palette
+  Ultra:     'var(--tier-magenta)',
+  Adventure: 'var(--tier-cyan)',
 };
 
 export function AsciiTier({ tier, style }: { tier: Tier | string; style?: CSSProperties }) {

@@ -8,12 +8,13 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 
-export type Tier = 'Starter' | 'Premium' | 'Ultra';
+export type Tier = 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
 export type Status = 'holding' | 'sold_back' | 'redeemed';
 
 /* MnStr labels the Premium tier as "Monster" in their UI. We keep "Premium"
  * as the canonical name in DB + chain + URL params, and use this helper
- * everywhere it surfaces in user-visible text. */
+ * everywhere it surfaces in user-visible text. Adventure is the One Piece
+ * pack — different IP, same label as the API. */
 export function tierLabel(tier: string): string {
   return tier === 'Premium' ? 'Monster' : tier;
 }
@@ -123,9 +124,10 @@ export function SectionHead({
  * ───────────────────────────────────────────────────────────── */
 
 const TIER_META: Record<Tier, { color: string; letter: string }> = {
-  Starter: { color: 'var(--tier-blue)',    letter: 'S' },
-  Premium: { color: 'var(--accent)',       letter: 'M' },
-  Ultra:   { color: 'var(--tier-magenta)', letter: 'U' },
+  Starter:   { color: 'var(--tier-blue)',    letter: 'S' },
+  Premium:   { color: 'var(--accent)',       letter: 'M' },
+  Ultra:     { color: 'var(--tier-magenta)', letter: 'U' },
+  Adventure: { color: 'var(--tier-cyan)',    letter: 'A' },
 };
 
 export function TierTag({ tier, style }: { tier: Tier; style?: CSSProperties }) {

@@ -54,9 +54,10 @@ export async function generateMetadata({ params }: { params: Promise<{ addr: str
 }
 
 const TIER_COLOR: Record<string, string> = {
-  Starter: 'var(--tier-blue)',
-  Premium: 'var(--accent)',
-  Ultra:   'var(--tier-magenta)',
+  Starter:   'var(--tier-blue)',
+  Premium:   'var(--accent)',
+  Ultra:     'var(--tier-magenta)',
+  Adventure: 'var(--tier-cyan)',
 };
 
 function shortAddr(a: string): string {
@@ -227,7 +228,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
               ))}
             </div>
             <div className="mt-2.5 grid grid-cols-3 gap-2">
-              {(['Starter', 'Premium', 'Ultra'] as const).map(tn => {
+              {(['Starter', 'Premium', 'Ultra', 'Adventure'] as const).map(tn => {
                 const m = detail.tierMix.find(t => t.tier === tn);
                 const c = TIER_COLOR[tn];
                 return (

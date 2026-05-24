@@ -986,7 +986,7 @@ const CARD_VIEW_ORDER: Record<CardView, string> = {
 
 export async function getCardsList(opts: {
   view: CardView;
-  tier?: 'Starter' | 'Premium' | 'Ultra' | 'all';
+  tier?: 'Starter' | 'Premium' | 'Ultra' | 'Adventure' | 'all';
   q?: string;
   page: number;
   pageSize: number;

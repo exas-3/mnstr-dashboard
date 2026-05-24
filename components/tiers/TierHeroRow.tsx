@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { Lbl, Mono } from '../primitives';
 import type { TierEconomics } from '@/lib/queries';
 
-const TIERS: Array<{ key: string; label: string }> = [
-  { key: 'Starter', label: 'STARTER' },
-  { key: 'Premium', label: 'MONSTER' },
-  { key: 'Ultra',   label: 'ULTRA' },
+const TIERS: Array<{ key: string; label: string; eyebrow?: string }> = [
+  { key: 'Starter',   label: 'STARTER' },
+  { key: 'Premium',   label: 'MONSTER' },
+  { key: 'Ultra',     label: 'ULTRA' },
+  { key: 'Adventure', label: 'ADVENTURE', eyebrow: 'ONE PIECE' },
 ];
 
 function abbrUsd(n: number): string {
@@ -24,7 +25,7 @@ export default function TierHeroRow({
   active: string;
 }) {
   return (
-    <div className="hidden lg:grid lg:grid-cols-3 lg:gap-3 lg:px-3 lg:pt-3">
+    <div className="hidden lg:grid lg:grid-cols-2 lg:gap-3 lg:px-3 lg:pt-3 xl:grid-cols-4">
       {TIERS.map(t => {
         const e = econs[t.key];
         if (!e) return null;
@@ -43,6 +44,11 @@ export default function TierHeroRow({
                 : 'none',
             }}
           >
+            {t.eyebrow && (
+              <Mono style={{ fontSize: 8.5, color: 'var(--tier-cyan)', letterSpacing: '0.16em', display: 'block', marginBottom: 4 }}>
+                {t.eyebrow}
+              </Mono>
+            )}
             <div className="flex items-baseline justify-between">
               <Lbl style={{ fontSize: 9, color: on ? 'var(--accent)' : 'var(--fg-3)' }}>
                 {t.label}

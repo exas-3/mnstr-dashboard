@@ -23,11 +23,11 @@ export const metadata: Metadata = {
   alternates: { canonical: '/tiers' },
 };
 
-const TIER_ORDER = ['Starter', 'Premium', 'Ultra'] as const;
+const TIER_ORDER = ['Starter', 'Premium', 'Ultra', 'Adventure'] as const;
 type TierName = (typeof TIER_ORDER)[number];
 
 function isTier(v: unknown): v is TierName {
-  return v === 'Starter' || v === 'Premium' || v === 'Ultra';
+  return v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
 }
 
 function usd(n: number, frac = 0): string {
@@ -62,7 +62,7 @@ export default async function TiersPage({
   // and felt out of place next to the other figures.
   const mode = 'realised';
 
-  const [econ, dist, soldBackTrend, outliers, econStarter, econPremium, econUltra] =
+  const [econ, dist, soldBackTrend, outliers, econStarter, econPremium, econUltra, econAdventure] =
     await Promise.all([
       getTierEconomics(tier, mode),
       getTierFMVDistribution(tier),
@@ -71,12 +71,14 @@ export default async function TiersPage({
       getTierEconomics('Starter', mode),
       getTierEconomics('Premium', mode),
       getTierEconomics('Ultra', mode),
+      getTierEconomics('Adventure', mode),
     ]);
 
   const econs: Record<string, TierEconomics> = {
     Starter: econStarter,
     Premium: econPremium,
     Ultra: econUltra,
+    Adventure: econAdventure,
   };
 
   return (

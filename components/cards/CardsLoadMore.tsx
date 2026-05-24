@@ -13,7 +13,7 @@ import type { CardListItem, CardView } from '@/lib/queries';
 
 const PAGE_SIZE = 24;
 
-type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra';
+type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
 
 export default function CardsLoadMore({
   view,

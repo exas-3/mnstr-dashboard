@@ -149,7 +149,7 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
                 >
                   {newest.username ? `@${newest.username}` : shortAddr(newest.wallet)}
                 </Link>
-                <AsciiTier tier={newest.tier as 'Starter' | 'Premium' | 'Ultra'} />
+                <AsciiTier tier={newest.tier as 'Starter' | 'Premium' | 'Ultra' | 'Adventure'} />
                 <AsciiStatus status={newest.status} />
               </div>
             </div>

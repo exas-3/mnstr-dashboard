@@ -3,9 +3,10 @@ import { Mono, type Tier } from '../primitives';
 import type { CardListItem } from '@/lib/queries';
 
 const TIER_COLOR: Record<string, string> = {
-  Starter: 'var(--tier-blue)',
-  Premium: 'var(--accent)',
-  Ultra:   'var(--tier-magenta)',
+  Starter:   'var(--tier-blue)',
+  Premium:   'var(--accent)',
+  Ultra:     'var(--tier-magenta)',
+  Adventure: 'var(--tier-cyan)',
 };
 
 export default function CardWallTile({ card }: { card: CardListItem }) {

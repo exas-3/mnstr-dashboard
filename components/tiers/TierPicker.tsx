@@ -2,15 +2,16 @@ import Link from 'next/link';
 import { Mono, tierLabel } from '../primitives';
 
 const TIERS = [
-  { id: 'Starter', sub: '$50' },
-  { id: 'Premium', sub: '$250' },
-  { id: 'Ultra',   sub: '$1,250' },
+  { id: 'Starter',   sub: '$50' },
+  { id: 'Premium',   sub: '$250' },
+  { id: 'Ultra',     sub: '$1,250' },
+  { id: 'Adventure', sub: '$150' },
 ] as const;
 
 export default function TierPicker({ value }: { value: string }) {
   return (
     <div
-      className="mx-3 mt-3 grid grid-cols-3"
+      className="mx-3 mt-3 grid grid-cols-2 sm:grid-cols-4"
       style={{ border: '1px solid var(--line-soft)' }}
     >
       {TIERS.map((t, i) => {

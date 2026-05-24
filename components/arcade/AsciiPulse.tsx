@@ -108,7 +108,7 @@ export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
               )}
               <div className="mt-1" style={{ color: 'var(--fg-3)', fontSize: 10 }}>
                 {bigHit.username ? `@${bigHit.username}` : shortAddr(bigHit.wallet)} ·{' '}
-                <AsciiTier tier={bigHit.tier as 'Starter' | 'Premium' | 'Ultra'} />
+                <AsciiTier tier={bigHit.tier as 'Starter' | 'Premium' | 'Ultra' | 'Adventure'} />
               </div>
             </div>
             <div style={{ color: 'var(--accent)', fontSize: 18, textAlign: 'right' }}>

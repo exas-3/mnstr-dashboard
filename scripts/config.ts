@@ -60,6 +60,15 @@ export const GACHA_CONTRACTS = [
     deployBlock: 13_479_710,
     priceUsd: 1250,
   },
+  {
+    // One Piece "Adventure" pack (https://mnstr.xyz/packs/one-piece-adventure/).
+    // Different IP than the Pokemon trio, same OffchainGacha contract pattern.
+    // Buyback rate is 90% here vs 87/91/95% on the Pokemon packs.
+    tier: 'Adventure',
+    address: '0x1472a250e3663a33a62142a8c68b6c3c611e47bf',
+    deployBlock: 16_747_858,
+    priceUsd: 150,
+  },
 ] as const;
 
 export type Tier = (typeof GACHA_CONTRACTS)[number]['tier'];
