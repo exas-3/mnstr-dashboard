@@ -10,8 +10,8 @@ import type { Tier } from './config.js';
 function parseTier(arg?: string): Tier | undefined {
   if (!arg) return undefined;
   const t = arg[0].toUpperCase() + arg.slice(1).toLowerCase();
-  if (t === 'Starter' || t === 'Premium' || t === 'Ultra') return t;
-  throw new Error(`Unknown tier: ${arg} (expected Starter | Premium | Ultra)`);
+  if (t === 'Starter' || t === 'Premium' || t === 'Ultra' || t === 'Adventure') return t;
+  throw new Error(`Unknown tier: ${arg} (expected Starter | Premium | Ultra | Adventure)`);
 }
 
 async function main() {
