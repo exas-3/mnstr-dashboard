@@ -33,7 +33,7 @@ export default function WalletPreviewPane({ rows }: { rows: WalletRow[] }) {
 
   return (
     <aside
-      className="hidden xl:block"
+      className="hidden md:block"
       style={{
         position: 'sticky',
         top: 64,

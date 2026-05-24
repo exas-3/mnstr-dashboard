@@ -78,8 +78,11 @@ export default function LeaderboardSection({
   }
 
   return (
-    <div className="xl:grid xl:gap-4 xl:px-2" style={{ gridTemplateColumns: '1fr 320px' }}>
-      <div className="xl:min-w-0">
+    <div
+      className="md:grid md:gap-3 md:px-2 xl:gap-4"
+      style={{ gridTemplateColumns: 'minmax(0, 1fr) clamp(260px, 26vw, 340px)' }}
+    >
+      <div className="md:min-w-0">
         {/* Ladder: tracks the current table state, redraws as rows grow. */}
         <SectionHead
           tag="LADDER"
@@ -102,7 +105,7 @@ export default function LeaderboardSection({
           <EmptyState title="NO WALLETS" sub="No handle or address matched." />
         ) : (
           <div
-            className="mx-3 xl:mx-0"
+            className="mx-3 md:mx-0"
             style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
           >
             {rows.map((r, i) => (
@@ -153,7 +156,7 @@ export default function LeaderboardSection({
 
       {/* Master-detail preview pane (xl+ only). Reflects the table's current top
        * rows — grows in sync since `rows` is shared state. */}
-      <div className="hidden xl:block xl:pt-2">
+      <div className="hidden md:block md:pt-2">
         <WalletPreviewPane rows={rows} />
       </div>
     </div>
