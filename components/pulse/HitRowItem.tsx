@@ -6,6 +6,15 @@ function shortAddr(a: string): string {
   return a.slice(0, 4) + '…' + a.slice(-4);
 }
 
+/* Render the pull's timestamp as "MMM D · HH:MM" UTC, fixed locale to avoid
+ * SSR/CSR hydration mismatches. UTC because that's how pulled_at is stored. */
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
+  return `${date} · ${time}`;
+}
+
 export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolean }) {
   const fmv = hit.fmv_usd ? Number(hit.fmv_usd) : 0;
   const hot = fmv >= 1000;
@@ -15,7 +24,7 @@ export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolea
     <div
       className="grid items-center gap-2.5 px-3 py-2"
       style={{
-        gridTemplateColumns: '46px 1fr 64px',
+        gridTemplateColumns: '46px 1fr auto',
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
     >
@@ -46,7 +55,12 @@ export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolea
           <TierTag tier={hit.tier as Tier} style={{ marginLeft: 'auto', padding: '1px 4px', fontSize: 7.5 }} />
         </div>
       </div>
-      <Mono style={{ fontSize: 12, color: 'var(--accent)', textAlign: 'right' }}>${fmvLabel}</Mono>
+      <div style={{ textAlign: 'right' }}>
+        <Mono style={{ fontSize: 12, color: 'var(--accent)', display: 'block' }}>${fmvLabel}</Mono>
+        <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>
+          {fmtDate(hit.pulled_at)}
+        </Mono>
+      </div>
     </div>
   );
   if (hit.card_slug) {
