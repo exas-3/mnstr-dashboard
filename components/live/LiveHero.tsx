@@ -25,7 +25,12 @@ function ago(iso: string): string {
 export default function LiveHero({ pull }: { pull: HitRow | null }) {
   const [flash, setFlash] = useState(false);
   const [pinned, setPinned] = useState<HitRow | null>(null);
+  // mounted gate keeps ago() text out of SSR (where Date.now() doesn't match
+  // the client) — same pattern as LivePulse, prevents React #418.
+  const [mounted, setMounted] = useState(false);
   const prevId = useRef<string | null>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!pull) return;
@@ -109,7 +114,7 @@ export default function LiveHero({ pull }: { pull: HitRow | null }) {
         <div className="flex min-w-0 flex-col justify-between">
           <div>
             <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.16em' }}>
-              {pinned ? '★ PINNED · BIG HIT' : '● NOW'} · {ago(shown.pulled_at)}
+              {pinned ? '★ PINNED · BIG HIT' : '● NOW'}{mounted && ` · ${ago(shown.pulled_at)}`}
             </Mono>
             {shown.card_slug ? (
               <Link

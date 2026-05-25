@@ -44,8 +44,11 @@ function asciiSlug(s: string | null): string {
 export default function AsciiLive({ initial, embed = false }: { initial: LiveData; embed?: boolean }) {
   const [data, setData] = useState<LiveData>(initial);
   const [, setTick] = useState(0);
+  // mounted: gate ago() text from SSR/first-render so hydration matches.
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     let cancelled = false;
     async function poll() {
       try {
@@ -100,7 +103,7 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
               ● STREAM.LIVE
             </div>
             <div style={{ color: 'var(--fg-4)', fontSize: 9.5, marginTop: 2 }}>
-              poll T+{POLL_MS / 1000}s :: last {ago(data.serverNow)}{' '}
+              poll T+{POLL_MS / 1000}s{mounted && ` :: last ${ago(data.serverNow)}`}{' '}
               {data.latestBlock && `:: block ${data.latestBlock.block.toLocaleString('en-US')}`}
             </div>
           </div>
@@ -121,7 +124,7 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
           <div className="grid items-baseline gap-2" style={{ gridTemplateColumns: '1fr auto' }}>
             <div>
               <div style={{ color: 'var(--accent)', fontSize: 10, letterSpacing: '0.18em' }}>
-                ● {ago(newest.pulled_at)}
+                ●{mounted && ` ${ago(newest.pulled_at)}`}
               </div>
               {newest.card_slug ? (
                 <Link
@@ -186,7 +189,7 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
                     : 'none',
                 }}
               >
-                <span style={{ color: 'var(--fg-4)' }}>[{ago(p.pulled_at).padEnd(6)}]</span>{' '}
+                <span style={{ color: 'var(--fg-4)' }}>[{mounted ? ago(p.pulled_at).padEnd(6) : '      '}]</span>{' '}
                 <span style={{ color: 'var(--fg-3)' }}>{tierCode}</span>{' '}
                 <Link href={`/wallets/${p.wallet}`} className="hover:underline">
                   {who.padEnd(20).slice(0, 20)}

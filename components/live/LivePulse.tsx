@@ -36,8 +36,14 @@ function shortAddr(a: string): string {
 export default function LivePulse({ initial, embed = false }: { initial: LiveData; embed?: boolean }) {
   const [data, setData] = useState<LiveData>(initial);
   const [tick, setTick] = useState(0);
+  // `mounted` is false during SSR + initial client hydration so any
+  // time-relative text (ago()) skips that pass and renders nothing — the
+  // SSR HTML and the client hydration HTML are then byte-identical. Once
+  // mounted flips true, the real "Xs ago" labels populate.
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     let cancelled = false;
     async function poll() {
       try {
@@ -94,7 +100,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               ● STREAM LIVE
             </Mono>
             <Mono style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2, display: 'block' }}>
-              polling every {POLL_MS / 1000}s · last {ago(data.serverNow)} ago
+              polling every {POLL_MS / 1000}s{mounted && ` · last ${ago(data.serverNow)} ago`}
               {data.latestBlock && ` · block ${data.latestBlock.block.toLocaleString('en-US')}`}
             </Mono>
           </div>
@@ -162,7 +168,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
                 >
                   {who}
                 </Link>
-                <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>{ago(it.pulled_at)}</Mono>
+                <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>{mounted ? ago(it.pulled_at) : ''}</Mono>
               </div>
               <div className="flex items-center justify-between">
                 <TierTag tier={it.tier as Tier} style={{ padding: '1px 4px', fontSize: 7.5 }} />

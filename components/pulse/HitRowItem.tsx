@@ -7,13 +7,18 @@ function shortAddr(a: string): string {
   return a.slice(0, 4) + '…' + a.slice(-4);
 }
 
-/* Render the pull's timestamp as "MMM D · HH:MM" UTC, fixed locale to avoid
- * SSR/CSR hydration mismatches. UTC because that's how pulled_at is stored. */
+/* Render the pull's timestamp as "MMM D · HH:MM" UTC. Hand-formatted (no Intl)
+ * because Node's ICU and Chrome's V8 Intl disagree on subtleties — narrow
+ * no-break spaces in particular — and React errors out on hydration when even
+ * one character differs between SSR and CSR. */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function fmtDate(iso: string): string {
   const d = new Date(iso);
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
-  return `${date} · ${time}`;
+  const m = MONTHS[d.getUTCMonth()];
+  const day = d.getUTCDate();
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${m} ${day} · ${h}:${min}`;
 }
 
 export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolean }) {
