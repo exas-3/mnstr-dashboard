@@ -1132,18 +1132,7 @@ export interface CardDetail {
   last_fmv: number | null;
   in_vault: boolean;       // any pull still 'holding' → true
 
-  history: Array<{
-    request_id: string;
-    tier: string;
-    wallet: string;
-    username: string | null;
-    user_slug: string | null;
-    price_usd: number;
-    fmv_usd: number | null;
-    payout_usd: number | null;
-    status: string;
-    pulled_at: string;
-  }>;
+  history: CardHistoryEntry[];
   comparables: Array<{
     slug: string;
     title: string | null;
@@ -1151,6 +1140,67 @@ export interface CardDetail {
     fmv: number | null;
     pulls: number;
   }>;
+}
+
+export interface CardHistoryEntry {
+  request_id: string;
+  tier: string;
+  wallet: string;
+  username: string | null;
+  user_slug: string | null;
+  price_usd: number;
+  fmv_usd: number | null;
+  payout_usd: number | null;
+  status: string;
+  pulled_at: string;
+}
+
+/* Paginated pull history for a single card — shared between getCardDetail
+ * (first 20 SSR) and /api/cards/[slug]/pulls (load-more page size). Sorted
+ * by pulled_at DESC with a request_id tie-breaker for deterministic paging. */
+export async function getCardPullHistory(
+  slug: string,
+  offset: number,
+  limit: number,
+): Promise<CardHistoryEntry[]> {
+  const rows = await sql<Array<{
+    request_id: string;
+    tier: string;
+    wallet: string;
+    username: string | null;
+    user_slug: string | null;
+    price_usd: string;
+    fmv_usd: string | null;
+    payout_usd: string | null;
+    status: string;
+    pulled_at: string;
+  }>>`
+    SELECT
+      request_id::text AS request_id,
+      tier, wallet, username, user_slug,
+      price_usd::text AS price_usd,
+      fmv_usd::text   AS fmv_usd,
+      payout_usd::text AS payout_usd,
+      status,
+      pulled_at::text AS pulled_at
+    FROM pulls_enriched
+    WHERE card_slug = ${slug}
+    ORDER BY pulled_at DESC, request_id DESC
+    OFFSET ${offset}
+    LIMIT ${limit}
+  `;
+  return rows.map(h => ({
+    request_id: h.request_id,
+    tier: h.tier,
+    wallet: h.wallet,
+    username: h.username,
+    user_slug: h.user_slug,
+    price_usd: Number(h.price_usd),
+    fmv_usd: h.fmv_usd ? Number(h.fmv_usd) : null,
+    payout_usd: h.payout_usd ? Number(h.payout_usd) : null,
+    status: h.status,
+    pulled_at: h.pulled_at,
+  }));
 }
 
 export async function getCardDetail(slug: string): Promise<CardDetail | null> {
@@ -1181,31 +1231,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
     FROM pulls_enriched WHERE card_slug = ${slug}
   `;
 
-  const history = await sql<Array<{
-    request_id: string;
-    tier: string;
-    wallet: string;
-    username: string | null;
-    user_slug: string | null;
-    price_usd: string;
-    fmv_usd: string | null;
-    payout_usd: string | null;
-    status: string;
-    pulled_at: string;
-  }>>`
-    SELECT
-      request_id::text AS request_id,
-      tier, wallet, username, user_slug,
-      price_usd::text AS price_usd,
-      fmv_usd::text   AS fmv_usd,
-      payout_usd::text AS payout_usd,
-      status,
-      pulled_at::text AS pulled_at
-    FROM pulls_enriched
-    WHERE card_slug = ${slug}
-    ORDER BY pulled_at DESC
-    LIMIT 20
-  `;
+  const history = await getCardPullHistory(slug, 0, 20);
 
   // Comparables: same card_set, different slug, top by FMV.
   const comparables = card.card_set
@@ -1237,18 +1263,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
     pulls_total: agg?.pulls ?? 0,
     last_fmv: agg?.last_fmv ? Number(agg.last_fmv) : null,
     in_vault: (agg?.held ?? 0) > 0,
-    history: history.map(h => ({
-      request_id: h.request_id,
-      tier: h.tier,
-      wallet: h.wallet,
-      username: h.username,
-      user_slug: h.user_slug,
-      price_usd: Number(h.price_usd),
-      fmv_usd: h.fmv_usd ? Number(h.fmv_usd) : null,
-      payout_usd: h.payout_usd ? Number(h.payout_usd) : null,
-      status: h.status,
-      pulled_at: h.pulled_at,
-    })),
+    history,
     comparables: comparables.map(c => ({
       slug: c.slug,
       title: c.title,

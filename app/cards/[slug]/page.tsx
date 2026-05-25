@@ -7,11 +7,11 @@ import {
   Lbl,
   Mono,
   SectionHead,
-  StatusPill,
   TierTag,
   type Tier,
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
+import CardHistoryLoadMore from '@/components/cards/CardHistoryLoadMore';
 
 export const revalidate = 300;
 
@@ -48,10 +48,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       images: card.image_front ? [card.image_front] : ['/og-default.png'],
     },
   };
-}
-
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
 }
 
 function usd(n: number, frac = 0): string {
@@ -193,75 +189,14 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
         />
       </div>
 
-      {/* History */}
-      <SectionHead tag="01 · HISTORY" title="Pull history" right={`${card.pulls_total} TOTAL`} />
-      <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
-        {card.history.length === 0 ? (
-          <div className="px-3 py-5 text-center">
-            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS</Mono>
-          </div>
-        ) : (
-          card.history.map((h, i) => {
-            const display = h.username ?? shortAddr(h.wallet);
-            const net = (h.payout_usd ?? 0) - h.price_usd;
-            return (
-              <div
-                key={h.request_id}
-                className="px-3.5 py-3"
-                style={{ borderTop: i === 0 ? 'none' : '1px dashed var(--line-soft)' }}
-              >
-                <div className="flex items-baseline justify-between">
-                  <Link
-                    href={`/wallets/${h.wallet}`}
-                    style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--fg)' }}
-                  >
-                    {display}
-                  </Link>
-                  <TierTag tier={h.tier as Tier} />
-                </div>
-                <Mono style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3, display: 'block' }}>
-                  {shortAddr(h.wallet)} · {new Date(h.pulled_at).toLocaleString('en-US', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Mono>
-                <div
-                  className="mt-3 flex items-center justify-between px-2.5 py-2"
-                  style={{ background: 'var(--bg-3)' }}
-                >
-                  <div>
-                    <StatusPill status={h.status} />
-                    {h.payout_usd !== null && h.status === 'sold_back' && (
-                      <Mono
-                        style={{
-                          fontSize: 11,
-                          color: 'var(--fg)',
-                          display: 'block',
-                          marginTop: 2,
-                        }}
-                      >
-                        {usd(h.payout_usd, h.payout_usd < 100 ? 2 : 0)} payout
-                      </Mono>
-                    )}
-                  </div>
-                  <Mono
-                    style={{
-                      fontSize: 11,
-                      color: net >= 0 ? 'var(--positive)' : 'var(--tier-magenta)',
-                    }}
-                  >
-                    {net >= 0 ? '+' : ''}
-                    {usd(net, Math.abs(net) < 100 ? 2 : 0)} net
-                  </Mono>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      {/* History — first 20 SSR'd, client component appends 10 per "Show more"
+       * click via /api/cards/[slug]/pulls until card.pulls_total is exhausted. */}
+      <SectionHead
+        tag="01 · HISTORY"
+        title="Pull history"
+        right={`${card.history.length} OF ${card.pulls_total.toLocaleString('en-US')}`}
+      />
+      <CardHistoryLoadMore slug={card.slug} initialRows={card.history} totalPulls={card.pulls_total} />
 
       {/* Comparables */}
       {card.comparables.length > 0 && (
