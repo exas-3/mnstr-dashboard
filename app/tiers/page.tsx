@@ -164,18 +164,20 @@ export default async function TiersPage({
         items={[
           { label: 'Cycled in',           value: abbrUsd(econ.revenue) },
           { label: 'Vault FMV (holding)', value: abbrUsd(econ.vaultFmv) },
-          { label: 'Payouts',             value: abbrUsd(econ.payouts), tone: 'pos' },
-          { label: 'House P&L',           value: abbrUsd(econ.pnlHouse), tone: 'pos' },
+          { label: 'Payouts (paper)',     value: abbrUsd(econ.payouts) },
+          // Player P&L = -House P&L. Positive when players win on average.
+          {
+            label: 'Player P&L',
+            value: abbrUsd(-econ.pnlHouse),
+            tone: -econ.pnlHouse >= 0 ? 'pos' : 'neg',
+          },
           {
             label: 'Median FMV',
             value: econ.median !== null ? usd(econ.median, econ.median < 100 ? 2 : 0) : '–',
           },
           {
-            label: 'P25 — P75',
-            value:
-              econ.p25 !== null && econ.p75 !== null
-                ? `${usd(econ.p25, econ.p25 < 100 ? 2 : 0)} — ${usd(econ.p75, econ.p75 < 100 ? 2 : 0)}`
-                : '–',
+            label: 'Mean FMV',
+            value: econ.mean !== null ? usd(econ.mean, econ.mean < 100 ? 2 : 0) : '–',
           },
           { label: 'Sold-back rate', value: `${(econ.sellbackRate * 100).toFixed(1)}%` },
           { label: 'Hit > price',    value: `${(econ.hitAbovePriceRate * 100).toFixed(1)}%`, tone: 'pos' },

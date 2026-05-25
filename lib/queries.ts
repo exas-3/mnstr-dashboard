@@ -231,6 +231,7 @@ export interface TierEconomics {
   sellbackRate: number;  // sold_back / total
   hitAbovePriceRate: number;
   median: number | null;
+  mean: number | null;   // average FMV — surfaces right-tail skew vs median
   p25: number | null;
   p75: number | null;
   vaultFmv: number;      // sum of fmv for holding pulls (= unrealised exposure side)
@@ -249,6 +250,7 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
     sold_back: number;
     hit_above_price: number;
     median: string | null;
+    mean: string | null;
     p25: string | null;
     p75: string | null;
     vault_fmv: string;
@@ -262,6 +264,7 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
       COUNT(*) FILTER (WHERE status = 'sold_back')::int                       AS sold_back,
       COUNT(*) FILTER (WHERE fmv_usd >= price_usd)::int                       AS hit_above_price,
       percentile_cont(0.50) WITHIN GROUP (ORDER BY fmv_usd)::text             AS median,
+      AVG(fmv_usd) FILTER (WHERE fmv_usd IS NOT NULL)::text                   AS mean,
       percentile_cont(0.25) WITHIN GROUP (ORDER BY fmv_usd)::text             AS p25,
       percentile_cont(0.75) WITHIN GROUP (ORDER BY fmv_usd)::text             AS p75,
       COALESCE(SUM(fmv_usd) FILTER (WHERE status = 'holding'), 0)::text       AS vault_fmv
@@ -285,6 +288,7 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
     sellbackRate: pulls > 0 ? soldBack / pulls : 0,
     hitAbovePriceRate: pulls > 0 ? hitAbovePrice / pulls : 0,
     median: r?.median ? Number(r.median) : null,
+    mean: r?.mean ? Number(r.mean) : null,
     p25: r?.p25 ? Number(r.p25) : null,
     p75: r?.p75 ? Number(r.p75) : null,
     vaultFmv: Number(r?.vault_fmv ?? 0),
