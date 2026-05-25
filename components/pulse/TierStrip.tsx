@@ -43,9 +43,20 @@ export default function TierStrip({ stats }: { stats: TierStats[] }) {
                 </Mono>
               </div>
             </div>
-            <Mono style={{ fontSize: 11, color: 'var(--accent)', textAlign: 'right' }}>
-              {(t.edge * 100).toFixed(1)}%
-            </Mono>
+            <div style={{ textAlign: 'right' }}>
+              <Mono
+                style={{
+                  fontSize: 11,
+                  color: t.edge <= 0 ? 'var(--positive)' : 'var(--tier-magenta)',
+                  display: 'block',
+                }}
+              >
+                {t.edge <= 0 ? '+' : '−'}{Math.abs(t.edge * 100).toFixed(1)}%
+              </Mono>
+              <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>
+                PLAYER EV
+              </Mono>
+            </div>
           </div>
         );
       })}

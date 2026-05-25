@@ -19,7 +19,7 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: 'Tiers · Pack economics',
   description:
-    'House edge, expected value, sold-back rates, and FMV distribution for every MnStr pack tier — Starter, Monster, Ultra.',
+    'Player expected value, sold-back rates, and FMV distribution for every MnStr pack tier — Starter, Monster, Ultra, Adventure.',
   alternates: { canonical: '/tiers' },
 };
 
@@ -91,48 +91,60 @@ export default async function TiersPage({
         <TierPicker value={tier} />
       </div>
 
-      {/* House-edge hero — only on mobile/tablet (the hero row replaces it on lg+). */}
-      <div
-        className="mx-3 mt-3 px-3.5 py-3.5 lg:hidden"
-        style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
-      >
-        <Lbl style={{ fontSize: 8.5 }}>House edge</Lbl>
-        <div className="mt-1 flex items-baseline justify-between">
-          <Mono style={{ fontSize: 36, color: 'var(--accent)', letterSpacing: '-0.02em' }}>
-            {(econ.edge * 100).toFixed(1)}%
-          </Mono>
-          <div className="text-right">
-            <Mono style={{ fontSize: 11, color: 'var(--fg-2)', display: 'block' }}>
-              EV ${econ.ev.toFixed(econ.ev < 100 ? 2 : 0)}
-            </Mono>
-            <Mono style={{ fontSize: 10, color: 'var(--fg-3)' }}>
-              vs ${econ.price.toLocaleString('en-US')}
-            </Mono>
-          </div>
-        </div>
-        <div
-          className="mt-3"
-          style={{
-            height: 6,
-            background: 'var(--bg-3)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
+      {/* Player-EV hero — only on mobile/tablet (the hero row replaces it on lg+).
+       * Diverging bar: zero at center, positive (player advantage) fills right
+       * in green, negative (house advantage) fills left in magenta.  */}
+      {(() => {
+        const evPct = -econ.edge * 100;            // flip sign: house edge → player EV
+        const playerWins = evPct >= 0;
+        const evColor = playerWins ? 'var(--positive)' : 'var(--tier-magenta)';
+        const RANGE = 15;                          // ± 15% covers realistic values
+        const fillPct = Math.min(100, (Math.abs(evPct) / RANGE) * 50);  // 0..50 of half-bar
+        return (
           <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: `${Math.min(100, Math.max(0, (econ.edge * 100) / 30 * 100))}%`,
-              background: 'linear-gradient(90deg, var(--accent), var(--accent-dim))',
-            }}
-          />
-        </div>
-        <div className="mt-1 flex justify-between">
-          <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>0%</Mono>
-          <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>30%</Mono>
-        </div>
-      </div>
+            className="mx-3 mt-3 px-3.5 py-3.5 lg:hidden"
+            style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
+          >
+            <Lbl style={{ fontSize: 8.5 }}>Player EV</Lbl>
+            <div className="mt-1 flex items-baseline justify-between">
+              <Mono style={{ fontSize: 36, color: evColor, letterSpacing: '-0.02em' }}>
+                {playerWins ? '+' : '−'}{Math.abs(evPct).toFixed(1)}%
+              </Mono>
+              <div className="text-right">
+                <Mono style={{ fontSize: 11, color: 'var(--fg-2)', display: 'block' }}>
+                  EV ${econ.ev.toFixed(econ.ev < 100 ? 2 : 0)}
+                </Mono>
+                <Mono style={{ fontSize: 10, color: 'var(--fg-3)' }}>
+                  vs ${econ.price.toLocaleString('en-US')}
+                </Mono>
+              </div>
+            </div>
+            <div
+              className="mt-3"
+              style={{ height: 6, background: 'var(--bg-3)', position: 'relative', overflow: 'hidden' }}
+            >
+              {/* Center marker */}
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, background: 'var(--line-soft)' }} />
+              {/* Fill: right side if positive, left side if negative */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: playerWins ? '50%' : `${50 - fillPct}%`,
+                  width: `${fillPct}%`,
+                  background: evColor,
+                }}
+              />
+            </div>
+            <div className="mt-1 flex justify-between">
+              <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>−{RANGE}%</Mono>
+              <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>0%</Mono>
+              <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>+{RANGE}%</Mono>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Violin + Sold-back trend — side-by-side on lg+ */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:px-2">

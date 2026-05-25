@@ -26,12 +26,12 @@ const ITEMS: Array<{ label: string; body: string }> = [
   {
     label: 'P&L formula',
     body:
-      'Net P&L = realised payouts (sold-back × 0.85·FMV) minus USDm spent on packs. Cards still held are tracked separately under "paper".',
+      'Net P&L on the wallets leaderboard is realised payouts (sold-back × per-tier buyback rate × FMV) minus USDm spent on packs. Buyback rates: Starter 87% · Monster 91% · Ultra 95% · Adventure 90%.',
   },
   {
-    label: 'House edge',
+    label: 'Player EV',
     body:
-      'House edge = (revenue − payouts) / revenue, on resolved (sold-back) pulls. Edge on still-held inventory is a paper figure.',
+      'Player EV per tier = (hypothetical payouts − pack revenue) / revenue, where hypothetical payouts apply each tier\'s buyback rate to EVERY pull\'s current FMV — whether the card has been sold back or is still being held. A positive number means the average player comes out ahead on that pack; a negative number means the house keeps an edge.',
   },
 ];
 

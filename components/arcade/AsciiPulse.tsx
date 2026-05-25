@@ -161,26 +161,27 @@ export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
       <AsciiVelocity data={velocity} days={velocityDays} />
 
       {/* Tier table */}
-      <AsciiBox title="TIERS.EDGE">
+      <AsciiBox title="TIERS.PLAYER_EV">
         <table style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 10.5, borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ color: 'var(--fg-4)' }}>
               <td style={{ paddingBottom: 6 }}>TIER</td>
               <td>PRICE</td>
               <td>EV</td>
-              <td style={{ textAlign: 'right' }}>EDGE</td>
+              <td style={{ textAlign: 'right' }}>PLAYER.EV</td>
             </tr>
           </thead>
           <tbody>
             {tiers.map(t => {
-              const code = t.tier === 'Starter' ? 'STA' : t.tier === 'Premium' ? 'MON' : 'ULT';
+              const code = t.tier === 'Starter' ? 'STA' : t.tier === 'Premium' ? 'MON' : t.tier === 'Ultra' ? 'ULT' : 'ADV';
+              const evColor = t.edge <= 0 ? 'var(--positive)' : 'var(--tier-magenta)';
               return (
                 <tr key={t.tier} style={{ borderTop: '1px dotted var(--fg-4)' }}>
                   <td style={{ color: 'var(--fg)', paddingTop: 4, paddingBottom: 4 }}>{code}</td>
                   <td style={{ color: 'var(--fg-2)' }}>${t.price.toLocaleString('en-US')}</td>
                   <td style={{ color: 'var(--fg-2)' }}>${t.evUsd.toFixed(t.evUsd < 100 ? 2 : 0)}</td>
-                  <td style={{ color: 'var(--accent)', textAlign: 'right' }}>
-                    {(t.edge * 100).toFixed(1)}%
+                  <td style={{ color: evColor, textAlign: 'right' }}>
+                    {t.edge <= 0 ? '+' : '-'}{Math.abs(t.edge * 100).toFixed(1)}%
                   </td>
                 </tr>
               );

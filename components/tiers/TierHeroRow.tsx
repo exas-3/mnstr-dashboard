@@ -69,15 +69,15 @@ export default function TierHeroRow({
                       marginTop: 8,
                       display: 'block',
                       fontSize: 48,
-                      color: 'var(--accent)',
+                      color: e.edge <= 0 ? 'var(--positive)' : 'var(--tier-magenta)',
                       letterSpacing: '-0.02em',
                       lineHeight: 1,
                     }}
                   >
-                    {(e.edge * 100).toFixed(1)}%
+                    {e.edge <= 0 ? '+' : '−'}{Math.abs(e.edge * 100).toFixed(1)}%
                   </Mono>
                   <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', display: 'block', marginTop: 4 }}>
-                    HOUSE EDGE
+                    PLAYER EV
                   </Mono>
                   <div className="mt-4 grid grid-cols-3 gap-2" style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 10 }}>
                     <Stat label="EV" value={abbrUsd(e.ev)} />
