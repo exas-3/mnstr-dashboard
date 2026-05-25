@@ -423,23 +423,35 @@ export interface TierOutlier {
   pullers: TierOutlierPuller[];
 }
 
+/* On the Tiers outliers list, "outlier" means a card whose FMV beat the
+ * pack price by at least 2× — i.e. a noteworthy win, not just any card a
+ * player pulled. Mirrored in getTierOutlierCount so the totals stay in
+ * sync with the load-more pagination. */
+const OUTLIER_FMV_MULT = 2;
+
 export function getTierOutliers(tier: string, limit = 5, offset = 0): Promise<TierOutlier[]> {
-  return getOutliers({ tier, limit, offset });
+  return getOutliers({ tier, limit, offset, minFmvMultiplier: OUTLIER_FMV_MULT });
 }
 
 /* Distinct-card count for the outliers list — drives the "Show more" cap
  * on the Tiers page so we know when to hide the button. */
 export async function getTierOutlierCount(tier: string): Promise<number> {
   const [r] = await sql<Array<{ n: number }>>`
-    SELECT COUNT(DISTINCT card_slug)::int AS n
-    FROM pulls_enriched
-    WHERE tier = ${tier} AND fmv_usd IS NOT NULL AND card_slug IS NOT NULL
+    SELECT COUNT(*)::int AS n FROM (
+      SELECT card_slug
+      FROM pulls_enriched
+      WHERE tier = ${tier} AND fmv_usd IS NOT NULL AND card_slug IS NOT NULL
+      GROUP BY card_slug
+      HAVING MAX(fmv_usd) >= ${OUTLIER_FMV_MULT} * MAX(price_usd)
+    ) t
   `;
   return r?.n ?? 0;
 }
 
 /* Top hits deduped by card across all tiers in a time window.
- * Same shape + same renderer (OutlierRow) as Tiers outliers — used by Pulse. */
+ * Same shape + same renderer (OutlierRow) as Tiers outliers — used by Pulse.
+ * No 2x filter here — the Pulse "Big Hits" list is meant to be a chronological
+ * highlight reel, not just noteworthy beats. */
 export function getTopHitsDeduped(window: TimeWindowKey, limit = 5): Promise<TierOutlier[]> {
   return getOutliers({ window, limit });
 }
@@ -449,11 +461,13 @@ async function getOutliers({
   window,
   limit,
   offset = 0,
+  minFmvMultiplier,
 }: {
   tier?: string;
   window?: TimeWindowKey;
   limit: number;
   offset?: number;
+  minFmvMultiplier?: number;
 }): Promise<TierOutlier[]> {
   const tierWhere = tier ? sql`AND p.tier = ${tier}` : sql``;
   const subTierWhere = tier ? sql`AND p2.tier = ${tier}` : sql``;
@@ -496,6 +510,7 @@ async function getOutliers({
       ${tierWhere}
       ${windowWhere}
     GROUP BY p.card_slug
+    ${minFmvMultiplier ? sql`HAVING MAX(p.fmv_usd) >= ${minFmvMultiplier} * MAX(p.price_usd)` : sql``}
     ORDER BY MAX(p.fmv_usd) DESC, p.card_slug ASC
     OFFSET ${offset}
     LIMIT ${limit}

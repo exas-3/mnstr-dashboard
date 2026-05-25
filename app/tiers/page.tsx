@@ -186,11 +186,12 @@ export default async function TiersPage({
         ]}
       />
 
-      {/* Outliers — first 5 SSR'd, "Show more" appends 10 at a time via
-       * /api/tiers/[tier]/outliers until the distinct-card pool is exhausted. */}
+      {/* Outliers — distinct cards where FMV ≥ 2× pack price. First 5 SSR'd;
+       * "Show more" appends 10 at a time via /api/tiers/[tier]/outliers
+       * until the filtered pool is exhausted. */}
       <SectionHead
         tag="OUTLIERS"
-        title="Biggest pulls · this tier"
+        title="Biggest pulls · FMV ≥ 2× pack price"
         right={`${outliers.length} OF ${outliersTotal.toLocaleString('en-US')}`}
       />
       <TierOutliersLoadMore tier={tier} initialRows={outliers} totalOutliers={outliersTotal} />
