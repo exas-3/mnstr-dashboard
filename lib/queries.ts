@@ -262,11 +262,11 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
       COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text  AS payouts_realised,
       COALESCE(SUM(paper_payout_usd), 0)::text                                AS payouts_paper,
       COUNT(*) FILTER (WHERE status = 'sold_back')::int                       AS sold_back,
-      COUNT(*) FILTER (WHERE fmv_usd >= price_usd)::int                       AS hit_above_price,
-      percentile_cont(0.50) WITHIN GROUP (ORDER BY fmv_usd)::text             AS median,
-      AVG(fmv_usd) FILTER (WHERE fmv_usd IS NOT NULL)::text                   AS mean,
-      percentile_cont(0.25) WITHIN GROUP (ORDER BY fmv_usd)::text             AS p25,
-      percentile_cont(0.75) WITHIN GROUP (ORDER BY fmv_usd)::text             AS p75,
+      COUNT(*) FILTER (WHERE fmv_at_pull_usd >= price_usd)::int               AS hit_above_price,
+      percentile_cont(0.50) WITHIN GROUP (ORDER BY fmv_at_pull_usd)::text     AS median,
+      AVG(fmv_at_pull_usd) FILTER (WHERE fmv_at_pull_usd IS NOT NULL)::text   AS mean,
+      percentile_cont(0.25) WITHIN GROUP (ORDER BY fmv_at_pull_usd)::text     AS p25,
+      percentile_cont(0.75) WITHIN GROUP (ORDER BY fmv_at_pull_usd)::text     AS p75,
       COALESCE(SUM(fmv_usd) FILTER (WHERE status = 'holding'), 0)::text       AS vault_fmv
     FROM pulls_enriched
     WHERE tier = ${tier}

@@ -69,9 +69,14 @@ export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promi
     // It does NOT return per-pull status or payoutUsd. fmv comes from card.fmv.
     // Top-level fmvUsd/payoutUsd/status are populated only by the live /gacha/recent-pulls feed.
     const fmv = num(pull.fmvUsd) ?? (pull.card?.fmv ?? null);
+    // fmv_usd = latest vault appraisal (overwritten every enrich, marks
+    // holdings to market). fmv_at_pull_usd = frozen at first enrich — the
+    // protocol's buyback commitment at pull time, used by paper P&L so it
+    // doesn't drift retroactively when MnStr re-prices a card.
     await sql`
       UPDATE pulls SET
         fmv_usd           = ${fmv},
+        fmv_at_pull_usd   = COALESCE(pulls.fmv_at_pull_usd, ${fmv}),
         payout_usd        = ${num(pull.payoutUsd)},
         status            = ${pull.status ?? null},
         card_slug         = ${cardSlug},
