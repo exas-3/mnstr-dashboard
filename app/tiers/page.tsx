@@ -57,10 +57,12 @@ export default async function TiersPage({
 }) {
   const params = await searchParams;
   const tier: TierName = isTier(params.tier) ? params.tier : 'Premium';
-  // House P&L on Tiers always shows the realised view — the paper view was
-  // a "what would the books look like if everyone sold today" hypothetical
-  // and felt out of place next to the other figures.
-  const mode = 'realised';
+  // House edge + EV are paper-based: every pull's hypothetical sell-back at
+  // current FMV × the tier's buyback rate, regardless of whether the player
+  // has actually sold yet. Realised would punish tiers with high hold rates
+  // (their liabilities look smaller than they really are) and reward tiers
+  // with quick sell-backs — both misleading reads of the protocol's edge.
+  const mode = 'paper';
 
   const [econ, dist, soldBackTrend, outliers, econStarter, econPremium, econUltra, econAdventure] =
     await Promise.all([
@@ -185,7 +187,7 @@ export default async function TiersPage({
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
           † Distribution uses <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> at time of pull.
           <br />
-          † Pack economics are realised only — pack revenue minus payouts on sold-back pulls.
+          † Pack economics are paper-mode — every pull&apos;s hypothetical sell-back (FMV × buyback rate) counts as a payout, whether sold yet or not.
         </Mono>
       </div>
     </div>

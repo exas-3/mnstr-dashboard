@@ -107,20 +107,22 @@ export interface TierStats {
   tier: string;
   price: number;
   pulls: number;
-  evUsd: number;        // avg realised payout per pull (sold-back payout / total pulls)
-  edge: number;         // 1 - payout/revenue
+  evUsd: number;        // avg hypothetical payout per pull (fmv × tier-rate / pulls)
+  edge: number;         // 1 - hypothetical_payout/revenue (paper mode)
 }
 
+/* Pulse TierStrip stats. Uses PAPER payouts (every pull's hypothetical
+ * sell-back value at the current FMV) — not realised — so a tier where
+ * players are still holding their cards doesn't show an artificially-high
+ * house edge just because the liabilities haven't crystallised yet. */
 export async function getTierStats(): Promise<TierStats[]> {
   return sql<TierStats[]>`
     SELECT
       tier,
       MAX(price_usd)::float                                                            AS price,
       COUNT(*)::int                                                                    AS pulls,
-      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::float
-        / NULLIF(COUNT(*), 0))                                                          AS "evUsd",
-      (1 - COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::float
-        / NULLIF(SUM(price_usd), 0))                                                    AS edge
+      (COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(COUNT(*), 0))                AS "evUsd",
+      (1 - COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(SUM(price_usd), 0))      AS edge
     FROM pulls_enriched
     GROUP BY tier
     ORDER BY MAX(price_usd)
@@ -234,18 +236,10 @@ export interface TierEconomics {
   vaultFmv: number;      // sum of fmv for holding pulls (= unrealised exposure side)
 }
 
-// Per-tier buyback rate (% of FMV paid out on sell-back). Source of truth:
-// mnstr.xyz /packs API `buybackRatePct`. Mirrored in sql/006_*.sql and in
-// scripts/config.ts GACHA_CONTRACTS — keep all three in sync if rates change.
-const BUYBACK_RATES: Record<string, number> = {
-  Starter:   0.87,
-  Premium:   0.91,
-  Ultra:     0.95,
-  Adventure: 0.90,
-};
-
+/* Per-tier buyback rate (% of FMV paid out on sell-back). Single source of
+ * truth lives in the SQL view (sql/007_*.sql) — `paper_payout_usd` already
+ * applies the right per-tier multiplier. */
 export async function getTierEconomics(tier: string, mode: PnlMode): Promise<TierEconomics> {
-  const paperRate = BUYBACK_RATES[tier] ?? 0.85;
   const [r] = await sql<Array<{
     price: string;
     pulls: number;
@@ -264,7 +258,7 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
       COUNT(*)::int                                                           AS pulls,
       COALESCE(SUM(price_usd), 0)::text                                       AS revenue,
       COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text  AS payouts_realised,
-      COALESCE(SUM(ROUND(fmv_usd * ${paperRate}, 2)) FILTER (WHERE fmv_usd IS NOT NULL), 0)::text AS payouts_paper,
+      COALESCE(SUM(paper_payout_usd), 0)::text                                AS payouts_paper,
       COUNT(*) FILTER (WHERE status = 'sold_back')::int                       AS sold_back,
       COUNT(*) FILTER (WHERE fmv_usd >= price_usd)::int                       AS hit_above_price,
       percentile_cont(0.50) WITHIN GROUP (ORDER BY fmv_usd)::text             AS median,
