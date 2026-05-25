@@ -423,8 +423,19 @@ export interface TierOutlier {
   pullers: TierOutlierPuller[];
 }
 
-export function getTierOutliers(tier: string, limit = 5): Promise<TierOutlier[]> {
-  return getOutliers({ tier, limit });
+export function getTierOutliers(tier: string, limit = 5, offset = 0): Promise<TierOutlier[]> {
+  return getOutliers({ tier, limit, offset });
+}
+
+/* Distinct-card count for the outliers list — drives the "Show more" cap
+ * on the Tiers page so we know when to hide the button. */
+export async function getTierOutlierCount(tier: string): Promise<number> {
+  const [r] = await sql<Array<{ n: number }>>`
+    SELECT COUNT(DISTINCT card_slug)::int AS n
+    FROM pulls_enriched
+    WHERE tier = ${tier} AND fmv_usd IS NOT NULL AND card_slug IS NOT NULL
+  `;
+  return r?.n ?? 0;
 }
 
 /* Top hits deduped by card across all tiers in a time window.
@@ -437,10 +448,12 @@ async function getOutliers({
   tier,
   window,
   limit,
+  offset = 0,
 }: {
   tier?: string;
   window?: TimeWindowKey;
   limit: number;
+  offset?: number;
 }): Promise<TierOutlier[]> {
   const tierWhere = tier ? sql`AND p.tier = ${tier}` : sql``;
   const subTierWhere = tier ? sql`AND p2.tier = ${tier}` : sql``;
@@ -484,6 +497,7 @@ async function getOutliers({
       ${windowWhere}
     GROUP BY p.card_slug
     ORDER BY MAX(p.fmv_usd) DESC, p.card_slug ASC
+    OFFSET ${offset}
     LIMIT ${limit}
   `;
   return rows.map(r => ({

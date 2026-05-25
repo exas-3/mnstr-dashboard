@@ -4,6 +4,7 @@ import {
   getTierFMVDistribution,
   getSoldBackRateOverTime,
   getTierOutliers,
+  getTierOutlierCount,
 } from '@/lib/queries';
 import { Lbl, Mono, SectionHead } from '@/components/primitives';
 import TierPicker from '@/components/tiers/TierPicker';
@@ -11,7 +12,7 @@ import TierHeroRow from '@/components/tiers/TierHeroRow';
 import ViolinChart from '@/components/tiers/ViolinChart';
 import SoldBackChart from '@/components/tiers/SoldBackChart';
 import EconGrid from '@/components/tiers/EconGrid';
-import OutlierRow from '@/components/tiers/OutlierRow';
+import TierOutliersLoadMore from '@/components/tiers/TierOutliersLoadMore';
 import type { TierEconomics } from '@/lib/queries';
 
 export const revalidate = 60;
@@ -64,12 +65,13 @@ export default async function TiersPage({
   // with quick sell-backs — both misleading reads of the protocol's edge.
   const mode = 'paper';
 
-  const [econ, dist, soldBackTrend, outliers, econStarter, econPremium, econUltra, econAdventure] =
+  const [econ, dist, soldBackTrend, outliers, outliersTotal, econStarter, econPremium, econUltra, econAdventure] =
     await Promise.all([
       getTierEconomics(tier, mode),
       getTierFMVDistribution(tier),
       getSoldBackRateOverTime(tier, 12),
       getTierOutliers(tier, 5),
+      getTierOutlierCount(tier),
       getTierEconomics('Starter', mode),
       getTierEconomics('Premium', mode),
       getTierEconomics('Ultra', mode),
@@ -184,17 +186,14 @@ export default async function TiersPage({
         ]}
       />
 
-      {/* Outliers */}
-      <SectionHead tag="OUTLIERS" title="Biggest pulls · this tier" right="ALL-TIME" />
-      <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
-        {outliers.length === 0 ? (
-          <div className="px-3 py-5 text-center">
-            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS</Mono>
-          </div>
-        ) : (
-          outliers.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
-        )}
-      </div>
+      {/* Outliers — first 5 SSR'd, "Show more" appends 10 at a time via
+       * /api/tiers/[tier]/outliers until the distinct-card pool is exhausted. */}
+      <SectionHead
+        tag="OUTLIERS"
+        title="Biggest pulls · this tier"
+        right={`${outliers.length} OF ${outliersTotal.toLocaleString('en-US')}`}
+      />
+      <TierOutliersLoadMore tier={tier} initialRows={outliers} totalOutliers={outliersTotal} />
 
       {/* Caveat footer */}
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
