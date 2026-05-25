@@ -85,12 +85,13 @@ export default function LiveHero({ pull }: { pull: HitRow | null }) {
         }}
       >
         {(() => {
+          const img = shown.card_slug ? `/img/${shown.card_slug}` : shown.card_image_front;
           const thumb = (
             <div
               style={{
                 aspectRatio: '5/7',
-                background: shown.card_image_front
-                  ? `center/contain no-repeat url("${shown.card_image_front}")`
+                background: img
+                  ? `center/contain no-repeat url("${img}")`
                   : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
                 border: `1px solid ${isBig ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
                 boxShadow: isBig

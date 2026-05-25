@@ -139,7 +139,7 @@ export default async function PulsePage({
             who: bigHit.username ? `@${bigHit.username}` : shortAddr(bigHit.wallet),
             tier: bigHit.tier.toUpperCase(),
             fmv: Math.round(Number(bigHit.fmv_usd ?? 0)).toLocaleString('en-US'),
-            imageUrl: bigHit.card_image_front,
+            imageUrl: bigHit.card_slug ? `/img/${bigHit.card_slug}` : bigHit.card_image_front,
             href: bigHit.card_slug ? `/cards/${bigHit.card_slug}` : undefined,
           }}
         />

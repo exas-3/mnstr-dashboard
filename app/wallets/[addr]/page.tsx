@@ -272,9 +272,11 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
                     className="relative flex flex-col justify-between p-1.5"
                     style={{
                       aspectRatio: '5/7',
-                      background: h.card_image_front
-                        ? `center/contain no-repeat url("${h.card_image_front}"), var(--bg-3)`
-                        : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
+                      background: (h.card_slug
+                        ? `center/contain no-repeat url("/img/${h.card_slug}"), var(--bg-3)`
+                        : h.card_image_front
+                          ? `center/contain no-repeat url("${h.card_image_front}"), var(--bg-3)`
+                          : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)'),
                       border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
                       boxShadow: hot
                         ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 18px color-mix(in oklch, var(--accent) 12%, transparent)'

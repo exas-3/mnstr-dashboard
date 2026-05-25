@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
+import { cardImageUrl } from '@/lib/img';
 import type { HitRow } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -28,15 +29,20 @@ export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolea
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
     >
-      <div
-        style={{
-          aspectRatio: '5/7',
-          background: hit.card_image_front
-            ? `center/contain no-repeat url("${hit.card_image_front}")`
-            : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-          border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-        }}
-      />
+      {(() => {
+        const img = cardImageUrl(hit.card_slug, hit.card_image_front);
+        return (
+          <div
+            style={{
+              aspectRatio: '5/7',
+              background: img
+                ? `center/contain no-repeat url("${img}")`
+                : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
+              border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
+            }}
+          />
+        );
+      })()}
       <div className="min-w-0">
         <div
           className="truncate"

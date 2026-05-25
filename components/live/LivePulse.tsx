@@ -120,12 +120,13 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
           {rest.map(it => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
+          const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
           const cardImage = (
             <div
               style={{
                 aspectRatio: '5/7',
-                background: it.card_image_front
-                  ? `center/contain no-repeat url("${it.card_image_front}")`
+                background: img
+                  ? `center/contain no-repeat url("${img}")`
                   : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
                 border: `1px solid ${fmv >= 1000 ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
                 position: 'relative',

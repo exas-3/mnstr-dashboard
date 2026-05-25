@@ -28,6 +28,7 @@ import { decode, decodeSellback, decodeCardBought, decodeCardPriceUpdated,
 import { insertPullLogs } from './backfill.js';
 import { insertSellbacks } from './sellbacks.js';
 import { insertSales, insertPriceUpdates } from './marketplace.js';
+import { enrichOne } from './enrich.js';
 
 interface AlchemyWsLog {
   address: string;
@@ -123,6 +124,16 @@ async function handleLog(wsLog: AlchemyWsLog): Promise<void> {
     );
     if (inserted > 0) {
       console.log(`[ws] PULL  ${tier.padEnd(9)} req=${decoded.requestId} wallet=${decoded.wallet.slice(0, 8)}…`);
+      // Fast-enrich path: kick off card/user lookup in the background so the
+      // dashboard's Live feed sees the title + image + username within seconds
+      // instead of waiting up to 5 min for the reconcile poll. 5s delay gives
+      // MnStr's own indexer time to surface the pull on their API.
+      const requestId = decoded.requestId;
+      setTimeout(() => {
+        enrichOne(requestId).catch(err => {
+          console.warn(`[ws] fast-enrich ${requestId} failed (reconcile will retry):`, err instanceof Error ? err.message : err);
+        });
+      }, 5_000);
     }
   } else if (topic0 === NFT_SOLD_BACK_TOPIC) {
     const decoded = decodeSellback(raw);

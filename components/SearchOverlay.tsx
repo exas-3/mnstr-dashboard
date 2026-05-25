@@ -129,7 +129,7 @@ export default function SearchOverlay({
       primary: c.title ?? c.slug,
       secondary: [c.card_set, c.grading].filter(Boolean).join(' · ') || undefined,
       trailing: c.fmv != null ? `${abbrUsd(c.fmv)} · ${c.pulls}×` : `${c.pulls}×`,
-      imageUrl: c.image_front,
+      imageUrl: c.slug ? `/img/${c.slug}` : c.image_front,
     }));
     return [...walletItems, ...cardItems];
   }, [results, q]);

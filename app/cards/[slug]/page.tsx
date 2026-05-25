@@ -117,7 +117,7 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
           style={{
             aspectRatio: '5/7',
             background: card.image_front
-              ? `center/contain no-repeat url("${card.image_front}"), var(--bg-3)`
+              ? `center/contain no-repeat url("/img/${card.slug}"), var(--bg-3)`
               : `radial-gradient(circle at 30% 25%, oklch(0.42 0.06 85 / 0.4), transparent 50%), repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 6px, oklch(0.22 0.01 70) 6px, oklch(0.22 0.01 70) 12px)`,
             border: '1px solid color-mix(in oklch, var(--accent) 53%, transparent)',
             boxShadow:

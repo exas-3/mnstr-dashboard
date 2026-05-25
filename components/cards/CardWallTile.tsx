@@ -14,14 +14,15 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
   const tier = (card.top_tier ?? 'Starter') as Tier;
   const tc = TIER_COLOR[tier];
 
+  const img = card.slug ? `/img/${card.slug}` : card.image_front;
   return (
     <Link href={`/cards/${card.slug}`} className="block">
       <div
         className="relative flex flex-col justify-between p-1.5"
         style={{
           aspectRatio: '5/7',
-          background: card.image_front
-            ? `center/contain no-repeat url("${card.image_front}"), var(--bg-3)`
+          background: img
+            ? `center/contain no-repeat url("${img}"), var(--bg-3)`
             : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
           border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
           boxShadow: hot

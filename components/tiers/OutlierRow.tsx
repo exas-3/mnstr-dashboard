@@ -103,12 +103,13 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
 }
 
 function Thumb({ outlier, hot }: { outlier: TierOutlier; hot: boolean }) {
+  const img = outlier.card_slug ? `/img/${outlier.card_slug}` : outlier.card_image_front;
   return (
     <div
       style={{
         aspectRatio: '5/7',
-        background: outlier.card_image_front
-          ? `center/contain no-repeat url("${outlier.card_image_front}"), var(--bg-3)`
+        background: img
+          ? `center/contain no-repeat url("${img}"), var(--bg-3)`
           : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
         border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
       }}
