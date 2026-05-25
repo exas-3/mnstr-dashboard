@@ -773,6 +773,39 @@ export interface WalletDetail {
   recent: HitRow[];         // newest pulls first (up to 12)
 }
 
+/* Paginated recent-pulls for a single wallet — used by getWalletDetail for
+ * the first page AND by /api/wallets/[addr]/pulls for the "show more"
+ * button on the wallet detail page. ORDER BY pulled_at DESC with a
+ * tie-breaker on request_id so paged requests are deterministic. */
+export async function getWalletRecentPulls(
+  wallet: string,
+  offset: number,
+  limit: number,
+): Promise<HitRow[]> {
+  const addr = wallet.toLowerCase();
+  return sql<HitRow[]>`
+    SELECT
+      p.request_id::text  AS request_id,
+      p.tier,
+      p.card_slug,
+      c.title             AS card_title,
+      c.card_set          AS card_set,
+      c.image_front       AS card_image_front,
+      p.username, p.user_slug, p.wallet,
+      p.price_usd::text   AS price_usd,
+      p.fmv_usd::text     AS fmv_usd,
+      p.payout_usd::text  AS payout_usd,
+      p.status,
+      p.pulled_at::text   AS pulled_at
+    FROM pulls_enriched p
+    LEFT JOIN cards c ON c.slug = p.card_slug
+    WHERE p.wallet = ${addr}
+    ORDER BY p.pulled_at DESC, p.request_id DESC
+    OFFSET ${offset}
+    LIMIT ${limit}
+  `;
+}
+
 export async function getWalletDetail(wallet: string): Promise<WalletDetail | null> {
   const addr = wallet.toLowerCase();
   const [agg] = await sql<Array<{
@@ -830,26 +863,7 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
     ORDER BY p.fmv_usd DESC
     LIMIT 9
   `;
-  const recent = await sql<HitRow[]>`
-    SELECT
-      p.request_id::text  AS request_id,
-      p.tier,
-      p.card_slug,
-      c.title             AS card_title,
-      c.card_set          AS card_set,
-      c.image_front       AS card_image_front,
-      p.username, p.user_slug, p.wallet,
-      p.price_usd::text   AS price_usd,
-      p.fmv_usd::text     AS fmv_usd,
-      p.payout_usd::text  AS payout_usd,
-      p.status,
-      p.pulled_at::text   AS pulled_at
-    FROM pulls_enriched p
-    LEFT JOIN cards c ON c.slug = p.card_slug
-    WHERE p.wallet = ${addr}
-    ORDER BY p.pulled_at DESC
-    LIMIT 12
-  `;
+  const recent = await getWalletRecentPulls(addr, 0, 12);
 
   const spend = Number(agg.spend);
   const payout = Number(agg.payout);
