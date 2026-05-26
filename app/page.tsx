@@ -210,67 +210,65 @@ export default async function PulsePage({
         </div>
       </div>
 
-      <div className="lg:grid lg:grid-cols-12 lg:gap-4 lg:px-2">
-        {/* Main column (full width on mobile/tablet, 8/12 on lg+) */}
-        <div className="lg:col-span-8 lg:min-w-0">
-          {/* 6 KPI tiles */}
-          <div className="grid grid-cols-2 gap-2 px-3 pt-3 sm:grid-cols-3 lg:px-0">
-            <KpiTile label={`Packs · ${winLabel}`} value={kpis.packs.toLocaleString('en-US')} />
-            <KpiTile label={`USDm · ${winLabel}`} value={cycled.value} unit={cycled.unit} />
-            <KpiTile label={`Payouts · ${winLabel}`} value={payouts.value} unit={payouts.unit} />
-            <KpiTile label={`Wallets · ${winLabel}`} value={kpis.walletsActive.toLocaleString('en-US')} />
-            <KpiTile label="Packs · all-time" value={kpis.packsAllTime.toLocaleString('en-US')} delta="cumulative" />
-            <KpiTile label="USDm · all-time" value={allCycled.value} unit={allCycled.unit} delta="cumulative" />
-          </div>
-
-          {/* Velocity */}
-          {(() => {
-            const { span, granularity } = VELOCITY_SPAN[window];
-            const unit = granularity === 'hour' ? 'H' : 'D';
-            const titleNoun = granularity === 'hour' ? 'Packs/hour' : 'Packs/day';
-            return (
-              <>
-                <SectionHead tag="VELOCITY" title={`${titleNoun}, stacked`} right={`${span}${unit} BACKDROP`} />
-                <VelocityChart data={velocity} span={span} granularity={granularity} />
-              </>
-            );
-          })()}
-
-          {/* Tier strip */}
-          <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
-          <TierStrip stats={tiers} />
-
-          {/* Embedded live stream — full /live experience inline. Locked to
-           * 24h regardless of Pulse window. The component polls /api/live
-           * every 5s on its own. */}
-          <SectionHead
-            tag="LIVE"
-            title="Live stream"
-            right={
-              <Link href="/live" style={{ color: 'var(--accent)' }}>
-                OPEN FULLSCREEN →
-              </Link>
-            }
-          />
-          <LivePulse initial={liveInitial} embed />
+      {/* Single linear column on all screen sizes. Big Hits sits between
+       * Tiers and Live so the "what just happened" digest comes before the
+       * live-firehose. */}
+      <div>
+        {/* 6 KPI tiles */}
+        <div className="grid grid-cols-2 gap-2 px-3 pt-3 sm:grid-cols-3 lg:grid-cols-6">
+          <KpiTile label={`Packs · ${winLabel}`} value={kpis.packs.toLocaleString('en-US')} />
+          <KpiTile label={`USDm · ${winLabel}`} value={cycled.value} unit={cycled.unit} />
+          <KpiTile label={`Payouts · ${winLabel}`} value={payouts.value} unit={payouts.unit} />
+          <KpiTile label={`Wallets · ${winLabel}`} value={kpis.walletsActive.toLocaleString('en-US')} />
+          <KpiTile label="Packs · all-time" value={kpis.packsAllTime.toLocaleString('en-US')} delta="cumulative" />
+          <KpiTile label="USDm · all-time" value={allCycled.value} unit={allCycled.unit} delta="cumulative" />
         </div>
 
-        {/* Big Hits side rail (cols 9-12 on lg, full row below on mobile/tablet) */}
-        <aside className="lg:col-span-4 lg:min-w-0">
-          <SectionHead tag="BIG HITS" title={`Top hits · ${winLabel}`} right="MNSTR FMV" />
-          <div
-            className="mx-3 lg:mx-0"
-            style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
-          >
-            {topHitsDeduped.length === 0 ? (
-              <div className="px-3 py-5 text-center">
-                <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS IN WINDOW</Mono>
-              </div>
-            ) : (
-              topHitsDeduped.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
-            )}
-          </div>
-        </aside>
+        {/* Velocity */}
+        {(() => {
+          const { span, granularity } = VELOCITY_SPAN[window];
+          const unit = granularity === 'hour' ? 'H' : 'D';
+          const titleNoun = granularity === 'hour' ? 'Packs/hour' : 'Packs/day';
+          return (
+            <>
+              <SectionHead tag="VELOCITY" title={`${titleNoun}, stacked`} right={`${span}${unit} BACKDROP`} />
+              <VelocityChart data={velocity} span={span} granularity={granularity} />
+            </>
+          );
+        })()}
+
+        {/* Tier strip */}
+        <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
+        <TierStrip stats={tiers} />
+
+        {/* Big Hits — moved above Live so the day's highlight reel reads first */}
+        <SectionHead tag="BIG HITS" title={`Top hits · ${winLabel}`} right="MNSTR FMV" />
+        <div
+          className="mx-3"
+          style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
+        >
+          {topHitsDeduped.length === 0 ? (
+            <div className="px-3 py-5 text-center">
+              <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS IN WINDOW</Mono>
+            </div>
+          ) : (
+            topHitsDeduped.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
+          )}
+        </div>
+
+        {/* Embedded live stream — full /live experience inline. Locked to
+         * 24h regardless of Pulse window. The component polls /api/live
+         * every 5s on its own. */}
+        <SectionHead
+          tag="LIVE"
+          title="Live stream"
+          right={
+            <Link href="/live" style={{ color: 'var(--accent)' }}>
+              OPEN FULLSCREEN →
+            </Link>
+          }
+        />
+        <LivePulse initial={liveInitial} embed />
       </div>
 
       {/* Caveat footer */}
