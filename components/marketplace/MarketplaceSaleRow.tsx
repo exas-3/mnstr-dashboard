@@ -27,13 +27,14 @@ function fmtDate(iso: string): string {
 }
 
 export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceSale; first?: boolean }) {
-  // Orphan = slab listed straight on marketplace without ever being pulled from
-  // a pack, so our cards table has no row. Render with a placeholder + an
-  // outbound link to mnstr.xyz so users can still inspect the slab.
+  // Orphan = the slab was sold without ever being pulled from a pack — so the
+  // seller side of the trade is MnStr itself (direct vault sale), not a
+  // player. The buyer / price / on-chain tx are still real; we just don't
+  // have card metadata since cards.* is populated by the pull enrich step.
   const orphan = !sale.card_slug;
   const img = sale.card_slug ? `/img/${sale.card_slug}` : sale.card_image_front;
-  const title = sale.card_title ?? `Direct listing · #${sale.serial_number}`;
-  const subtitle = sale.card_grading ?? (orphan ? 'never pulled from a pack' : null);
+  const title = sale.card_title ?? `Vault sale · #${sale.serial_number}`;
+  const subtitle = sale.card_grading ?? (orphan ? 'sold direct from MnStr vault' : null);
   // Premium relative to vault FMV (positive = sold above FMV).
   const premium = sale.card_fmv != null && sale.card_fmv > 0
     ? (sale.price_usd - sale.card_fmv) / sale.card_fmv
