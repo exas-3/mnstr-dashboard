@@ -75,6 +75,7 @@ export interface VelocityPoint {
   starter: number;
   premium: number;
   ultra: number;
+  adventure: number;
 }
 
 export async function getVelocityByTier(days = 30): Promise<VelocityPoint[]> {
@@ -90,10 +91,11 @@ export async function getVelocityByTier(days = 30): Promise<VelocityPoint[]> {
   `;
   const byDay = new Map<string, VelocityPoint>();
   for (const r of rows) {
-    const cur = byDay.get(r.day) ?? { day: r.day, starter: 0, premium: 0, ultra: 0 };
-    if (r.tier === 'Starter') cur.starter = r.pulls;
-    else if (r.tier === 'Premium') cur.premium = r.pulls;
-    else if (r.tier === 'Ultra') cur.ultra = r.pulls;
+    const cur = byDay.get(r.day) ?? { day: r.day, starter: 0, premium: 0, ultra: 0, adventure: 0 };
+    if (r.tier === 'Starter')        cur.starter = r.pulls;
+    else if (r.tier === 'Premium')   cur.premium = r.pulls;
+    else if (r.tier === 'Ultra')     cur.ultra = r.pulls;
+    else if (r.tier === 'Adventure') cur.adventure = r.pulls;
     byDay.set(r.day, cur);
   }
   return [...byDay.values()];

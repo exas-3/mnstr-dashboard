@@ -12,6 +12,7 @@ interface VelocityPoint {
   starter: number;
   premium: number;
   ultra: number;
+  adventure: number;
 }
 
 function lineFor(values: number[], peak: number, color: string, label: string) {
@@ -48,19 +49,20 @@ export default function AsciiVelocity({ data, days = 30 }: { data: VelocityPoint
       </AsciiBox>
     );
   }
-  // Use cumulative peak so all 3 lines share a single y-scale.
+  // Use cumulative peak so all 4 lines share a single y-scale.
   const peak = Math.max(
     1,
-    ...data.map(d => Math.max(d.starter, d.premium, d.ultra)),
+    ...data.map(d => Math.max(d.starter, d.premium, d.ultra, d.adventure)),
   );
   return (
     <AsciiBox title={`VELOCITY.${days}D`}>
       <div className="mb-1.5" style={{ color: 'var(--fg-3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-        packs/day [S | M | U]
+        packs/day [S | M | U | A]
       </div>
-      {lineFor(data.map(d => d.starter), peak, 'var(--tier-blue)',    'STA')}
-      {lineFor(data.map(d => d.premium), peak, 'var(--accent)',       'MON')}
-      {lineFor(data.map(d => d.ultra),   peak, 'var(--tier-magenta)', 'ULT')}
+      {lineFor(data.map(d => d.starter),   peak, 'var(--tier-blue)',    'STA')}
+      {lineFor(data.map(d => d.premium),   peak, 'var(--accent)',       'MON')}
+      {lineFor(data.map(d => d.ultra),     peak, 'var(--tier-magenta)', 'ULT')}
+      {lineFor(data.map(d => d.adventure), peak, 'var(--tier-cyan)',    'ADV')}
       <div className="mt-2 flex justify-between" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)' }}>
         <span>-{days}D</span>
         <span>NOW</span>
