@@ -117,7 +117,8 @@ export interface TierStats {
  * sell-back value at the current FMV) — not realised — so a tier where
  * players are still holding their cards doesn't show an artificially-high
  * house edge just because the liabilities haven't crystallised yet. */
-export async function getTierStats(): Promise<TierStats[]> {
+export async function getTierStats(window: TimeWindowKey = 'all'): Promise<TierStats[]> {
+  const windowWhere = window === 'all' ? sql`` : sql`WHERE pulled_at >= now() - ${intervalFor(window)}::interval`;
   return sql<TierStats[]>`
     SELECT
       tier,
@@ -126,6 +127,7 @@ export async function getTierStats(): Promise<TierStats[]> {
       (COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(COUNT(*), 0))                AS "evUsd",
       (1 - COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(SUM(price_usd), 0))      AS edge
     FROM pulls_enriched
+    ${windowWhere}
     GROUP BY tier
     ORDER BY MAX(price_usd)
   `;

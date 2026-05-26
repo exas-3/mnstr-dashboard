@@ -35,10 +35,14 @@ const WINDOWS: Array<{ key: TimeWindowKey; label: string }> = [
   { key: 'all', label: 'ALL' },
 ];
 
+// Velocity chart day-count per window. Matches the toggle 1:1 except 24h —
+// a one-day chart is just a single bar, so we still render a 14-day backdrop
+// when the headline window is "last 24h". Other sections honour the
+// window exactly.
 const VELOCITY_DAYS: Record<TimeWindowKey, number> = {
   '1h':  7,    // not used on Pulse but satisfies the type
-  '24h': 14,   // show 2 weeks backdrop with the 24h headline
-  '7d':  30,
+  '24h': 14,
+  '7d':  7,
   '30d': 30,
   all:   90,
 };
@@ -92,13 +96,13 @@ export default async function PulsePage({
     getTheme(),
     getKpisFor(window),
     getVelocityByTier(VELOCITY_DAYS[window]),
-    getTierStats(),
+    getTierStats(window),
     // Single-pull list — used by the BigHitBanner because it needs a specific
     // pulled_at timestamp ("14s ago") and a single puller.
-    getTopHits('7d', 5),
+    getTopHits(window, 5),
     // Deduped by card — used by the Big Hits section so a card pulled twice
     // doesn't take two rows; pullers are comma-separated.
-    getTopHitsDeduped('7d', 5),
+    getTopHitsDeduped(window, 5),
     getLiveFeed(8),
     getLatestIndexedBlock(),
   ]);
@@ -210,7 +214,7 @@ export default async function PulsePage({
           <VelocityChart data={velocity} days={VELOCITY_DAYS[window]} />
 
           {/* Tier strip */}
-          <SectionHead tag="TIERS" title="Edge by tier" right="ALL-TIME" />
+          <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
           <TierStrip stats={tiers} />
 
           {/* Live ticker */}
@@ -228,7 +232,7 @@ export default async function PulsePage({
 
         {/* Big Hits side rail (cols 9-12 on lg, full row below on mobile/tablet) */}
         <aside className="lg:col-span-4 lg:min-w-0">
-          <SectionHead tag="BIG HITS" title="Top hits · 7d" right="MNSTR FMV" />
+          <SectionHead tag="BIG HITS" title={`Top hits · ${winLabel}`} right="MNSTR FMV" />
           <div
             className="mx-3 lg:mx-0"
             style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
