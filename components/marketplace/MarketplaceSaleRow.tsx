@@ -27,8 +27,13 @@ function fmtDate(iso: string): string {
 }
 
 export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceSale; first?: boolean }) {
+  // Orphan = slab listed straight on marketplace without ever being pulled from
+  // a pack, so our cards table has no row. Render with a placeholder + an
+  // outbound link to mnstr.xyz so users can still inspect the slab.
+  const orphan = !sale.card_slug;
   const img = sale.card_slug ? `/img/${sale.card_slug}` : sale.card_image_front;
-  const title = sale.card_title ?? sale.serial_number;
+  const title = sale.card_title ?? `Direct listing · #${sale.serial_number}`;
+  const subtitle = sale.card_grading ?? (orphan ? 'never pulled from a pack' : null);
   // Premium relative to vault FMV (positive = sold above FMV).
   const premium = sale.card_fmv != null && sale.card_fmv > 0
     ? (sale.price_usd - sale.card_fmv) / sale.card_fmv
@@ -63,9 +68,11 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
           {title}
         </div>
         <div className="mt-1 flex items-center gap-1.5">
-          {sale.card_grading && (
+          {subtitle && (
             <>
-              <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>{sale.card_grading}</Mono>
+              <Mono style={{ fontSize: 9, color: orphan ? 'var(--fg-4)' : 'var(--fg-3)', fontStyle: orphan ? 'italic' : 'normal' }}>
+                {subtitle}
+              </Mono>
               <span style={{ color: 'var(--fg-4)' }}>·</span>
             </>
           )}
@@ -100,5 +107,16 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
       </Link>
     );
   }
-  return inner;
+  // Orphan slab — link to mnstr.xyz where the slab page lives, so users can
+  // still see what was sold even though our DB has no metadata.
+  return (
+    <a
+      href={`https://mnstr.xyz/cards/${sale.serial_number}/`}
+      target="_blank"
+      rel="noreferrer"
+      className="block"
+    >
+      {inner}
+    </a>
+  );
 }
