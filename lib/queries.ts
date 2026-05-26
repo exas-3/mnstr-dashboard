@@ -204,6 +204,10 @@ export async function getTopHits(window: TimeWindowKey, limit = 5): Promise<HitR
  * Live feed — newest pulls (for Live route and Pulse ticker)
  * ───────────────────────────────────────────────────────────── */
 
+/* Live stream feed — newest pulls first. ORDER includes a request_id tie-
+ * breaker because chain blocks can contain multiple pulls that share an
+ * identical block-timestamp; without the tiebreaker Postgres returns those
+ * in arbitrary order, making the stream grid shuffle every 5s poll. */
 export async function getLiveFeed(limit = 30): Promise<HitRow[]> {
   return sql<HitRow[]>`
     SELECT
@@ -223,7 +227,7 @@ export async function getLiveFeed(limit = 30): Promise<HitRow[]> {
       p.pulled_at::text          AS pulled_at
     FROM pulls_enriched p
     LEFT JOIN cards c ON c.slug = p.card_slug
-    ORDER BY p.pulled_at DESC
+    ORDER BY p.pulled_at DESC, p.request_id DESC
     LIMIT ${limit}
   `;
 }
