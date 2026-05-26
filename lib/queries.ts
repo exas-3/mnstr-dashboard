@@ -1316,6 +1316,10 @@ export interface MarketplaceSale {
   card_grading: string | null;
   card_tier: string | null;       // tier the slab was last pulled at, if any
   card_fmv: number | null;        // current vault FMV for context vs sale price
+  // Seller = wallet of the most recent pull of this slab before bought_at.
+  // null when the slab was sold direct from MnStr's vault (no prior pull).
+  seller_wallet: string | null;
+  seller_handle: string | null;
 }
 
 export interface MarketplaceKpis {
@@ -1371,6 +1375,8 @@ export async function getMarketplaceSales(offset: number, limit: number): Promis
     card_grading: string | null;
     card_tier: string | null;
     card_fmv: string | null;
+    seller_wallet: string | null;
+    seller_handle: string | null;
   }>>`
     SELECT
       ms.tx_hash,
@@ -1385,13 +1391,22 @@ export async function getMarketplaceSales(offset: number, limit: number): Promis
       c.card_set                               AS card_set,
       c.image_front                            AS card_image_front,
       c.grading                                AS card_grading,
-      -- Tier the slab was most recently pulled at (if ever pulled).
-      (SELECT p.tier FROM pulls p WHERE p.card_slug = c.slug
-        ORDER BY p.pulled_at DESC LIMIT 1)     AS card_tier,
-      (SELECT p.fmv_usd::text FROM pulls p WHERE p.card_slug = c.slug
-        ORDER BY p.pulled_at DESC LIMIT 1)     AS card_fmv
+      seller.tier                              AS card_tier,
+      seller.fmv_usd::text                     AS card_fmv,
+      seller.wallet                            AS seller_wallet,
+      seller.username                          AS seller_handle
     FROM marketplace_sales ms
     LEFT JOIN cards c ON c.serial_number = ms.serial_number
+    -- Lateral join: pull the most recent pull of this slab BEFORE the sale
+    -- so we can attribute seller wallet, tier, and FMV in a single pass.
+    LEFT JOIN LATERAL (
+      SELECT p.tier, p.fmv_usd, p.wallet, p.username
+      FROM pulls p
+      WHERE p.card_slug = c.slug
+        AND p.pulled_at < ms.bought_at
+      ORDER BY p.pulled_at DESC
+      LIMIT 1
+    ) seller ON TRUE
     ORDER BY ms.bought_at DESC, ms.tx_hash DESC, ms.log_index DESC
     OFFSET ${offset}
     LIMIT ${limit}
@@ -1411,6 +1426,8 @@ export async function getMarketplaceSales(offset: number, limit: number): Promis
     card_grading: r.card_grading,
     card_tier: r.card_tier,
     card_fmv: r.card_fmv ? Number(r.card_fmv) : null,
+    seller_wallet: r.seller_wallet,
+    seller_handle: r.seller_handle,
   }));
 }
 

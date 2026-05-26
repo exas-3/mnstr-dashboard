@@ -78,7 +78,15 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
             </>
           )}
           <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
-            buyer {shortAddr(sale.buyer)}
+            {sale.seller_wallet ? (
+              <>
+                {sale.seller_handle ? `@${sale.seller_handle}` : shortAddr(sale.seller_wallet)}
+              </>
+            ) : (
+              <span style={{ color: 'var(--fg-4)' }}>MnStr vault</span>
+            )}
+            <span style={{ color: 'var(--fg-4)', margin: '0 4px' }}>→</span>
+            {shortAddr(sale.buyer)}
           </Mono>
           {sale.card_tier && (
             <TierTag tier={sale.card_tier as Tier} style={{ marginLeft: 'auto', padding: '1px 4px', fontSize: 7.5 }} />
