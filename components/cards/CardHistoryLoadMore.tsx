@@ -1,31 +1,30 @@
 'use client';
 
-/* Pull history list with a "Show more" button on the card detail page.
- * Server SSR's the first 20 rows (newest first); this component appends
- * 10 more per click via /api/cards/[slug]/pulls until the card's total
- * pull count is exhausted. */
+/* Unified activity feed for /cards/[slug] — pulls + marketplace sales,
+ * ordered DESC by timestamp. First 20 SSR'd, "Show more" appends 10 at
+ * a time via /api/cards/[slug]/activity until the combined pool is empty. */
 
 import { useState } from 'react';
-import CardHistoryRow from './CardHistoryRow';
+import CardActivityRow from './CardActivityRow';
 import { Mono } from '../primitives';
-import type { CardHistoryEntry } from '@/lib/queries';
+import type { CardActivity } from '@/lib/queries';
 
 const PAGE_SIZE = 10;
 
 export default function CardHistoryLoadMore({
   slug,
   initialRows,
-  totalPulls,
+  totalEvents,
 }: {
   slug: string;
-  initialRows: CardHistoryEntry[];
-  totalPulls: number;
+  initialRows: CardActivity[];
+  totalEvents: number;
 }) {
-  const [rows, setRows] = useState<CardHistoryEntry[]>(initialRows);
+  const [rows, setRows] = useState<CardActivity[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const remaining = Math.max(0, totalPulls - rows.length);
+  const remaining = Math.max(0, totalEvents - rows.length);
   const nextBatch = Math.min(remaining, PAGE_SIZE);
 
   async function loadMore() {
@@ -33,14 +32,14 @@ export default function CardHistoryLoadMore({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/cards/${slug}/pulls?offset=${rows.length}`, {
+      const res = await fetch(`/api/cards/${slug}/activity?offset=${rows.length}`, {
         cache: 'no-store',
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: CardHistoryEntry[] };
+      const data = (await res.json()) as { rows: CardActivity[] };
       setRows(prev => {
-        const seen = new Set(prev.map(r => r.request_id));
-        const fresh = data.rows.filter(r => !seen.has(r.request_id));
+        const seen = new Set(prev.map(r => `${r.kind}:${r.event_id}`));
+        const fresh = data.rows.filter(r => !seen.has(`${r.kind}:${r.event_id}`));
         return [...prev, ...fresh];
       });
     } catch (e) {
@@ -55,10 +54,12 @@ export default function CardHistoryLoadMore({
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         {rows.length === 0 ? (
           <div className="px-3 py-5 text-center">
-            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS</Mono>
+            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO ACTIVITY</Mono>
           </div>
         ) : (
-          rows.map((h, i) => <CardHistoryRow key={h.request_id} h={h} first={i === 0} />)
+          rows.map((ev, i) => (
+            <CardActivityRow key={`${ev.kind}:${ev.event_id}`} ev={ev} first={i === 0} />
+          ))
         )}
       </div>
 

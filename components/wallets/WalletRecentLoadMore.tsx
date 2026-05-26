@@ -1,31 +1,31 @@
 'use client';
 
-/* Recent-pulls list with a "Show more" button beneath it on the wallet
- * detail page. Server SSR's the first 12 rows (newest first); this
- * component appends 10 more per click via /api/wallets/[addr]/pulls
- * until the wallet's history is exhausted. */
+/* Unified activity feed for /wallets/[addr] — pulls + marketplace trades
+ * (buy / sell) interleaved, ordered DESC by timestamp. First 12 SSR'd,
+ * "Show more" appends 10 at a time via /api/wallets/[addr]/activity until
+ * the combined pool is empty. */
 
 import { useState } from 'react';
-import HitRowItem from '../pulse/HitRowItem';
+import WalletActivityRow from './WalletActivityRow';
 import { Mono } from '../primitives';
-import type { HitRow } from '@/lib/queries';
+import type { WalletActivity } from '@/lib/queries';
 
 const PAGE_SIZE = 10;
 
 export default function WalletRecentLoadMore({
   wallet,
   initialRows,
-  totalPulls,
+  totalEvents,
 }: {
   wallet: string;
-  initialRows: HitRow[];
-  totalPulls: number;
+  initialRows: WalletActivity[];
+  totalEvents: number;
 }) {
-  const [rows, setRows] = useState<HitRow[]>(initialRows);
+  const [rows, setRows] = useState<WalletActivity[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const remaining = Math.max(0, totalPulls - rows.length);
+  const remaining = Math.max(0, totalEvents - rows.length);
   const nextBatch = Math.min(remaining, PAGE_SIZE);
 
   async function loadMore() {
@@ -33,14 +33,14 @@ export default function WalletRecentLoadMore({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/wallets/${wallet}/pulls?offset=${rows.length}`, {
+      const res = await fetch(`/api/wallets/${wallet}/activity?offset=${rows.length}`, {
         cache: 'no-store',
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: HitRow[] };
+      const data = (await res.json()) as { rows: WalletActivity[] };
       setRows(prev => {
-        const seen = new Set(prev.map(r => r.request_id));
-        const fresh = data.rows.filter(r => !seen.has(r.request_id));
+        const seen = new Set(prev.map(r => `${r.kind}:${r.event_id}`));
+        const fresh = data.rows.filter(r => !seen.has(`${r.kind}:${r.event_id}`));
         return [...prev, ...fresh];
       });
     } catch (e) {
@@ -55,10 +55,12 @@ export default function WalletRecentLoadMore({
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         {rows.length === 0 ? (
           <div className="px-3 py-5 text-center">
-            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS</Mono>
+            <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO ACTIVITY</Mono>
           </div>
         ) : (
-          rows.map((h, i) => <HitRowItem key={h.request_id} hit={h} first={i === 0} />)
+          rows.map((ev, i) => (
+            <WalletActivityRow key={`${ev.kind}:${ev.event_id}`} ev={ev} first={i === 0} />
+          ))
         )}
       </div>
 
@@ -79,9 +81,7 @@ export default function WalletRecentLoadMore({
               cursor: loading ? 'wait' : 'pointer',
             }}
           >
-            {loading
-              ? 'LOADING…'
-              : `SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+            {loading ? 'LOADING…' : `SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
           </button>
         </div>
       )}

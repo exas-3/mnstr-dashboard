@@ -5,6 +5,8 @@ import {
   getWalletDetail,
   getWalletPullRhythm,
   getWalletNeighbours,
+  getWalletActivity,
+  getWalletActivityCount,
 } from '@/lib/queries';
 import {
   Identicon,
@@ -89,10 +91,12 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const wallet = addr.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(wallet)) return notFound();
 
-  const [detail, rhythm, neighbours] = await Promise.all([
+  const [detail, rhythm, neighbours, activity, activityTotal] = await Promise.all([
     getWalletDetail(wallet),
     getWalletPullRhythm(wallet, 12),
     getWalletNeighbours(wallet, 3),
+    getWalletActivity(wallet, 0, 12),
+    getWalletActivityCount(wallet),
   ]);
 
   if (!detail) return notFound();
@@ -313,18 +317,18 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         )}
       </div>
 
-      {/* Recent pulls — newest first, after the Collection's top-FMV grid.
-       * The client component handles "Show more" pagination over the
-       * wallet's full history via /api/wallets/[addr]/pulls. */}
+      {/* Recent history — interleaved pulls + marketplace trades (buy + sell),
+       * newest first. Client component appends 10 more per "Show more" click
+       * via /api/wallets/[addr]/activity until the combined pool is empty. */}
       <SectionHead
-        tag="03 · RECENT"
-        title="Recent pulls"
-        right={`${detail.recent.length} OF ${detail.collectionTotal.toLocaleString('en-US')}`}
+        tag="03 · HISTORY"
+        title="Recent history"
+        right={`${activity.length} OF ${activityTotal.toLocaleString('en-US')}`}
       />
       <WalletRecentLoadMore
         wallet={detail.wallet}
-        initialRows={detail.recent}
-        totalPulls={detail.collectionTotal}
+        initialRows={activity}
+        totalEvents={activityTotal}
       />
 
       {/* Rhythm */}

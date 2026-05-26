@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getCardDetail } from '@/lib/queries';
+import { getCardDetail, getCardActivity, getCardActivityCount } from '@/lib/queries';
 import {
   KpiTile,
   Lbl,
@@ -66,6 +66,12 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
   const { slug } = await params;
   const card = await getCardDetail(slug);
   if (!card) return notFound();
+
+  // Recent history = interleaved pull + marketplace events for this slab.
+  const [activity, activityTotal] = await Promise.all([
+    getCardActivity(slug, 0, 20),
+    getCardActivityCount(slug),
+  ]);
 
   const eyebrowBits = [card.card_set, card.year ? String(card.year) : null, card.grading]
     .filter((s): s is string => !!s);
@@ -189,14 +195,15 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
         />
       </div>
 
-      {/* History — first 20 SSR'd, client component appends 10 per "Show more"
-       * click via /api/cards/[slug]/pulls until card.pulls_total is exhausted. */}
+      {/* Recent history — interleaved pulls + marketplace sales for this slab,
+       * ordered DESC by timestamp. First 20 SSR'd; "Show more" appends 10 at
+       * a time via /api/cards/[slug]/activity until exhausted. */}
       <SectionHead
         tag="01 · HISTORY"
-        title="Pull history"
-        right={`${card.history.length} OF ${card.pulls_total.toLocaleString('en-US')}`}
+        title="Recent history"
+        right={`${activity.length} OF ${activityTotal.toLocaleString('en-US')}`}
       />
-      <CardHistoryLoadMore slug={card.slug} initialRows={card.history} totalPulls={card.pulls_total} />
+      <CardHistoryLoadMore slug={card.slug} initialRows={activity} totalEvents={activityTotal} />
 
       {/* Comparables */}
       {card.comparables.length > 0 && (

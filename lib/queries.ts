@@ -1297,6 +1297,392 @@ export async function getVaultStats(): Promise<VaultStats> {
  * ───────────────────────────────────────────────────────────── */
 
 /* ─────────────────────────────────────────────────────────────
+ * Card activity — pull + marketplace events on a single slab,
+ * interleaved chronologically. Powers "Recent history" on the
+ * card detail page.
+ * ───────────────────────────────────────────────────────────── */
+
+export type CardActivity =
+  | {
+      kind: 'pull';
+      ts: string;
+      event_id: string;
+      request_id: string;
+      tier: string;
+      wallet: string;
+      username: string | null;
+      price_usd: number;          // pack price
+      fmv_usd: number | null;
+      payout_usd: number | null;
+      status: string;
+    }
+  | {
+      kind: 'sale';
+      ts: string;
+      event_id: string;
+      tx_hash: string;
+      log_index: number;
+      buyer: string;
+      seller_wallet: string | null;
+      seller_handle: string | null;
+      sale_price_usd: number;
+      sale_card_fmv: number | null;
+      tier: string | null;
+    };
+
+export async function getCardActivityCount(slug: string): Promise<number> {
+  const [r] = await sql<Array<{ n: number }>>`
+    SELECT
+      (SELECT COUNT(*)::int FROM pulls WHERE card_slug = ${slug})
+      + (SELECT COUNT(*)::int FROM marketplace_sales ms
+          JOIN cards c ON c.serial_number = ms.serial_number
+          WHERE c.slug = ${slug})
+    AS n
+  `;
+  return r?.n ?? 0;
+}
+
+export async function getCardActivity(
+  slug: string,
+  offset: number,
+  limit: number,
+): Promise<CardActivity[]> {
+  const rows = await sql<Array<{
+    kind: 'pull' | 'sale';
+    ts: string;
+    event_id: string;
+    // pull
+    request_id: string | null;
+    tier: string | null;
+    wallet: string | null;
+    username: string | null;
+    price_usd: string | null;
+    fmv_usd: string | null;
+    payout_usd: string | null;
+    status: string | null;
+    // sale
+    tx_hash: string | null;
+    log_index: number | null;
+    buyer: string | null;
+    seller_wallet: string | null;
+    seller_handle: string | null;
+    sale_price_usd: string | null;
+    sale_card_fmv: string | null;
+  }>>`
+    SELECT * FROM (
+      SELECT
+        'pull'::text                       AS kind,
+        p.pulled_at::text                  AS ts,
+        p.request_id::text                 AS event_id,
+        p.request_id::text                 AS request_id,
+        p.tier                             AS tier,
+        p.wallet                           AS wallet,
+        p.username                         AS username,
+        p.price_usd::text                  AS price_usd,
+        p.fmv_usd::text                    AS fmv_usd,
+        p.payout_usd::text                 AS payout_usd,
+        p.status                           AS status,
+        NULL::text                         AS tx_hash,
+        NULL::int                          AS log_index,
+        NULL::text                         AS buyer,
+        NULL::text                         AS seller_wallet,
+        NULL::text                         AS seller_handle,
+        NULL::text                         AS sale_price_usd,
+        NULL::text                         AS sale_card_fmv
+      FROM pulls_enriched p
+      WHERE p.card_slug = ${slug}
+
+      UNION ALL
+
+      SELECT
+        'sale'::text                       AS kind,
+        ms.bought_at::text                 AS ts,
+        ms.tx_hash || ':' || ms.log_index  AS event_id,
+        NULL                               AS request_id,
+        seller.tier                        AS tier,
+        NULL                               AS wallet,
+        NULL                               AS username,
+        NULL                               AS price_usd,
+        NULL                               AS fmv_usd,
+        NULL                               AS payout_usd,
+        NULL                               AS status,
+        ms.tx_hash                         AS tx_hash,
+        ms.log_index                       AS log_index,
+        ms.buyer                           AS buyer,
+        seller.wallet                      AS seller_wallet,
+        seller.username                    AS seller_handle,
+        ms.price_usd::text                 AS sale_price_usd,
+        seller.fmv_usd::text               AS sale_card_fmv
+      FROM marketplace_sales ms
+      JOIN cards c ON c.serial_number = ms.serial_number
+      LEFT JOIN LATERAL (
+        SELECT p.wallet, p.username, p.tier, p.fmv_usd
+        FROM pulls p
+        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+        ORDER BY p.pulled_at DESC
+        LIMIT 1
+      ) seller ON TRUE
+      WHERE c.slug = ${slug}
+    ) ev
+    ORDER BY ts DESC, event_id DESC
+    OFFSET ${offset}
+    LIMIT ${limit}
+  `;
+
+  return rows.map((r): CardActivity => {
+    if (r.kind === 'pull') {
+      return {
+        kind: 'pull',
+        ts: r.ts,
+        event_id: r.event_id,
+        request_id: r.request_id!,
+        tier: r.tier!,
+        wallet: r.wallet!,
+        username: r.username,
+        price_usd: Number(r.price_usd ?? 0),
+        fmv_usd: r.fmv_usd ? Number(r.fmv_usd) : null,
+        payout_usd: r.payout_usd ? Number(r.payout_usd) : null,
+        status: r.status ?? 'holding',
+      };
+    }
+    return {
+      kind: 'sale',
+      ts: r.ts,
+      event_id: r.event_id,
+      tx_hash: r.tx_hash!,
+      log_index: r.log_index ?? 0,
+      buyer: r.buyer!,
+      seller_wallet: r.seller_wallet,
+      seller_handle: r.seller_handle,
+      sale_price_usd: Number(r.sale_price_usd ?? 0),
+      sale_card_fmv: r.sale_card_fmv ? Number(r.sale_card_fmv) : null,
+      tier: r.tier,
+    };
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * Wallet activity — pulls by this wallet + marketplace trades
+ * where the wallet was buyer or seller. Powers "Recent history"
+ * on /wallets/[addr].
+ * ───────────────────────────────────────────────────────────── */
+
+export type WalletActivity =
+  | {
+      kind: 'pull';
+      ts: string;
+      event_id: string;
+      request_id: string;
+      tier: string;
+      card_slug: string | null;
+      card_title: string | null;
+      card_set: string | null;
+      card_image_front: string | null;
+      card_grading: string | null;
+      price_usd: number;
+      fmv_usd: number | null;
+      payout_usd: number | null;
+      status: string;
+    }
+  | {
+      kind: 'sale_buy' | 'sale_sell';
+      ts: string;
+      event_id: string;
+      tx_hash: string;
+      log_index: number;
+      counterparty_wallet: string | null;  // the OTHER side of the trade
+      counterparty_handle: string | null;
+      sale_price_usd: number;
+      sale_card_fmv: number | null;
+      card_slug: string | null;
+      card_title: string | null;
+      card_set: string | null;
+      card_image_front: string | null;
+      card_grading: string | null;
+      tier: string | null;
+    };
+
+export async function getWalletActivityCount(wallet: string): Promise<number> {
+  const addr = wallet.toLowerCase();
+  const [r] = await sql<Array<{ n: number }>>`
+    SELECT
+      (SELECT COUNT(*)::int FROM pulls WHERE wallet = ${addr})
+      + (SELECT COUNT(*)::int FROM marketplace_sales WHERE buyer = ${addr})
+      + (SELECT COUNT(*)::int FROM marketplace_sales ms
+          JOIN cards c ON c.serial_number = ms.serial_number
+          WHERE (SELECT p.wallet FROM pulls p
+                  WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+                  ORDER BY p.pulled_at DESC LIMIT 1) = ${addr})
+    AS n
+  `;
+  return r?.n ?? 0;
+}
+
+export async function getWalletActivity(
+  wallet: string,
+  offset: number,
+  limit: number,
+): Promise<WalletActivity[]> {
+  const addr = wallet.toLowerCase();
+  const rows = await sql<Array<{
+    kind: 'pull' | 'sale_buy' | 'sale_sell';
+    ts: string;
+    event_id: string;
+    request_id: string | null;
+    tier: string | null;
+    price_usd: string | null;
+    fmv_usd: string | null;
+    payout_usd: string | null;
+    status: string | null;
+    tx_hash: string | null;
+    log_index: number | null;
+    counterparty_wallet: string | null;
+    counterparty_handle: string | null;
+    sale_price_usd: string | null;
+    sale_card_fmv: string | null;
+    card_slug: string | null;
+    card_title: string | null;
+    card_set: string | null;
+    card_image_front: string | null;
+    card_grading: string | null;
+  }>>`
+    SELECT * FROM (
+      SELECT
+        'pull'::text                       AS kind,
+        p.pulled_at::text                  AS ts,
+        p.request_id::text                 AS event_id,
+        p.request_id::text                 AS request_id,
+        p.tier                             AS tier,
+        p.price_usd::text                  AS price_usd,
+        p.fmv_usd::text                    AS fmv_usd,
+        p.payout_usd::text                 AS payout_usd,
+        p.status                           AS status,
+        NULL::text                         AS tx_hash,
+        NULL::int                          AS log_index,
+        NULL::text                         AS counterparty_wallet,
+        NULL::text                         AS counterparty_handle,
+        NULL::text                         AS sale_price_usd,
+        NULL::text                         AS sale_card_fmv,
+        p.card_slug                        AS card_slug,
+        c.title                            AS card_title,
+        c.card_set                         AS card_set,
+        c.image_front                      AS card_image_front,
+        c.grading                          AS card_grading
+      FROM pulls_enriched p
+      LEFT JOIN cards c ON c.slug = p.card_slug
+      WHERE p.wallet = ${addr}
+
+      UNION ALL
+
+      SELECT
+        'sale_buy'::text                   AS kind,
+        ms.bought_at::text                 AS ts,
+        ms.tx_hash || ':' || ms.log_index  AS event_id,
+        NULL                               AS request_id,
+        seller.tier                        AS tier,
+        NULL                               AS price_usd,
+        NULL                               AS fmv_usd,
+        NULL                               AS payout_usd,
+        NULL                               AS status,
+        ms.tx_hash                         AS tx_hash,
+        ms.log_index                       AS log_index,
+        seller.wallet                      AS counterparty_wallet,
+        seller.username                    AS counterparty_handle,
+        ms.price_usd::text                 AS sale_price_usd,
+        seller.fmv_usd::text               AS sale_card_fmv,
+        c.slug                             AS card_slug,
+        c.title                            AS card_title,
+        c.card_set                         AS card_set,
+        c.image_front                      AS card_image_front,
+        c.grading                          AS card_grading
+      FROM marketplace_sales ms
+      LEFT JOIN cards c ON c.serial_number = ms.serial_number
+      LEFT JOIN LATERAL (
+        SELECT p.wallet, p.username, p.tier, p.fmv_usd
+        FROM pulls p
+        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+        ORDER BY p.pulled_at DESC LIMIT 1
+      ) seller ON TRUE
+      WHERE ms.buyer = ${addr}
+
+      UNION ALL
+
+      SELECT
+        'sale_sell'::text                  AS kind,
+        ms.bought_at::text                 AS ts,
+        ms.tx_hash || ':' || ms.log_index  AS event_id,
+        NULL                               AS request_id,
+        seller.tier                        AS tier,
+        NULL                               AS price_usd,
+        NULL                               AS fmv_usd,
+        NULL                               AS payout_usd,
+        NULL                               AS status,
+        ms.tx_hash                         AS tx_hash,
+        ms.log_index                       AS log_index,
+        ms.buyer                           AS counterparty_wallet,
+        NULL                               AS counterparty_handle,
+        ms.price_usd::text                 AS sale_price_usd,
+        seller.fmv_usd::text               AS sale_card_fmv,
+        c.slug                             AS card_slug,
+        c.title                            AS card_title,
+        c.card_set                         AS card_set,
+        c.image_front                      AS card_image_front,
+        c.grading                          AS card_grading
+      FROM marketplace_sales ms
+      LEFT JOIN cards c ON c.serial_number = ms.serial_number
+      LEFT JOIN LATERAL (
+        SELECT p.wallet, p.username, p.tier, p.fmv_usd
+        FROM pulls p
+        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+        ORDER BY p.pulled_at DESC LIMIT 1
+      ) seller ON TRUE
+      WHERE seller.wallet = ${addr}
+    ) ev
+    ORDER BY ts DESC, event_id DESC
+    OFFSET ${offset}
+    LIMIT ${limit}
+  `;
+
+  return rows.map((r): WalletActivity => {
+    if (r.kind === 'pull') {
+      return {
+        kind: 'pull',
+        ts: r.ts,
+        event_id: r.event_id,
+        request_id: r.request_id!,
+        tier: r.tier!,
+        card_slug: r.card_slug,
+        card_title: r.card_title,
+        card_set: r.card_set,
+        card_image_front: r.card_image_front,
+        card_grading: r.card_grading,
+        price_usd: Number(r.price_usd ?? 0),
+        fmv_usd: r.fmv_usd ? Number(r.fmv_usd) : null,
+        payout_usd: r.payout_usd ? Number(r.payout_usd) : null,
+        status: r.status ?? 'holding',
+      };
+    }
+    return {
+      kind: r.kind,
+      ts: r.ts,
+      event_id: r.event_id,
+      tx_hash: r.tx_hash!,
+      log_index: r.log_index ?? 0,
+      counterparty_wallet: r.counterparty_wallet,
+      counterparty_handle: r.counterparty_handle,
+      sale_price_usd: Number(r.sale_price_usd ?? 0),
+      sale_card_fmv: r.sale_card_fmv ? Number(r.sale_card_fmv) : null,
+      card_slug: r.card_slug,
+      card_title: r.card_title,
+      card_set: r.card_set,
+      card_image_front: r.card_image_front,
+      card_grading: r.card_grading,
+      tier: r.tier,
+    };
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────
  * Marketplace — secondary-market sales (CardBought events from
  * the CardMarketplace contract). Powers the /marketplace page.
  * ───────────────────────────────────────────────────────────── */
