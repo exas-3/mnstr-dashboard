@@ -112,8 +112,8 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
         </Mono>
       </div>
 
-      {/* Hero card */}
-      <div className="mx-4 mt-3.5">
+      {/* Hero card — cap at 1250px so giant monitors don't render a 2000px slab */}
+      <div className="mx-4 mt-3.5" style={{ maxWidth: 1250, marginLeft: 'auto', marginRight: 'auto' }}>
         <div
           className="relative"
           style={{
