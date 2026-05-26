@@ -32,6 +32,9 @@ function shortAddr(a: string): string {
   return a.slice(0, 4) + '…' + a.slice(-4);
 }
 
+const FEED_PAGE_STEP = 30;
+const FEED_MAX = 200;
+
 export default function LivePulse({ initial, embed = false }: { initial: LiveData; embed?: boolean }) {
   const [data, setData] = useState<LiveData>(initial);
   const [tick, setTick] = useState(0);
@@ -40,13 +43,17 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
   // SSR HTML and the client hydration HTML are then byte-identical. Once
   // mounted flips true, the real "Xs ago" labels populate.
   const [mounted, setMounted] = useState(false);
+  // Feed limit — start at the SSR'd count, bump by FEED_PAGE_STEP per
+  // "Show more" click. Each poll re-fetches /api/live with this limit so
+  // both new arrivals at the top and the expanded tail stay in sync.
+  const [feedLimit, setFeedLimit] = useState(initial.feed.length);
 
   useEffect(() => {
     setMounted(true);
     let cancelled = false;
     async function poll() {
       try {
-        const res = await fetch('/api/live', { cache: 'no-store' });
+        const res = await fetch(`/api/live?limit=${feedLimit}`, { cache: 'no-store' });
         if (!res.ok) return;
         const json = (await res.json()) as LiveData;
         if (!cancelled) setData(json);
@@ -59,7 +66,22 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
       window.clearInterval(id);
       window.clearInterval(tickId);
     };
-  }, []);
+  }, [feedLimit]);
+
+  async function loadMoreFeed() {
+    if (feedLimit >= FEED_MAX) return;
+    const next = Math.min(FEED_MAX, feedLimit + FEED_PAGE_STEP);
+    setFeedLimit(next);
+    // Trigger an immediate fetch at the new limit instead of waiting for the
+    // next 5s tick. The polling effect will re-run on the limit change too,
+    // but firing now feels snappier.
+    try {
+      const res = await fetch(`/api/live?limit=${next}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = (await res.json()) as LiveData;
+      setData(json);
+    } catch {}
+  }
 
   // Use `tick` so age-out strings re-render
   void tick;
@@ -211,6 +233,27 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
           );
         })}
       </div>
+
+      {feedLimit < FEED_MAX && (
+        <div className="px-4 pt-3 pb-1 text-center">
+          <button
+            type="button"
+            onClick={loadMoreFeed}
+            style={{
+              padding: '8px 16px',
+              color: 'var(--accent)',
+              border: '1px solid color-mix(in oklch, var(--accent) 33%, transparent)',
+              background: 'color-mix(in oklch, var(--accent) 5%, transparent)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              letterSpacing: '0.14em',
+              cursor: 'pointer',
+            }}
+          >
+            SHOW {Math.min(FEED_PAGE_STEP, FEED_MAX - feedLimit)} MORE
+          </button>
+        </div>
+      )}
 
       {!embed && (
         <div

@@ -478,10 +478,28 @@ export async function getTierOutlierCount(tier: string): Promise<number> {
 
 /* Top hits deduped by card across all tiers in a time window.
  * Same shape + same renderer (OutlierRow) as Tiers outliers — used by Pulse.
- * No 2x filter here — the Pulse "Big Hits" list is meant to be a chronological
- * highlight reel, not just noteworthy beats. */
-export function getTopHitsDeduped(window: TimeWindowKey, limit = 5): Promise<TierOutlier[]> {
-  return getOutliers({ window, limit });
+ * 2× FMV-vs-pack-price filter so the list is "noteworthy wins" only, not
+ * every card pulled. Matches the Tiers outliers behaviour. */
+export function getTopHitsDeduped(
+  window: TimeWindowKey,
+  limit = 5,
+  offset = 0,
+): Promise<TierOutlier[]> {
+  return getOutliers({ window, limit, offset, minFmvMultiplier: OUTLIER_FMV_MULT });
+}
+
+export async function getTopHitsDedupedCount(window: TimeWindowKey): Promise<number> {
+  const [r] = await sql<Array<{ n: number }>>`
+    SELECT COUNT(*)::int AS n FROM (
+      SELECT card_slug
+      FROM pulls_enriched
+      WHERE fmv_usd IS NOT NULL AND card_slug IS NOT NULL
+        AND pulled_at >= now() - ${intervalFor(window)}::interval
+      GROUP BY card_slug
+      HAVING MAX(fmv_usd) >= ${OUTLIER_FMV_MULT} * MAX(price_usd)
+    ) t
+  `;
+  return r?.n ?? 0;
 }
 
 async function getOutliers({

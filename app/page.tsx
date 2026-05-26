@@ -6,6 +6,7 @@ import {
   getTierStats,
   getTopHits,
   getTopHitsDeduped,
+  getTopHitsDedupedCount,
   getLiveFeed,
   getLatestIndexedBlock,
   type TimeWindowKey,
@@ -15,7 +16,7 @@ import { KpiTile, Mono, SectionHead } from '@/components/primitives';
 import VelocityChart from '@/components/VelocityChart';
 import TierStrip from '@/components/pulse/TierStrip';
 import LivePulse from '@/components/live/LivePulse';
-import OutlierRow from '@/components/tiers/OutlierRow';
+import BigHitsLoadMore from '@/components/pulse/BigHitsLoadMore';
 import BigHitBanner from '@/components/BigHitBanner';
 import AsciiPulse from '@/components/arcade/AsciiPulse';
 
@@ -93,7 +94,7 @@ export default async function PulsePage({
     : params.w === 'all' ? 'all'
     : '24h';
 
-  const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, live, liveKpis, latestBlock] = await Promise.all([
+  const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, topHitsDedupedTotal, live, liveKpis, latestBlock] = await Promise.all([
     getTheme(),
     getKpisFor(window),
     getVelocityByTier(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
@@ -101,9 +102,11 @@ export default async function PulsePage({
     // Single-pull list — used by the BigHitBanner because it needs a specific
     // pulled_at timestamp ("14s ago") and a single puller.
     getTopHits(window, 5),
-    // Deduped by card — used by the Big Hits section so a card pulled twice
-    // doesn't take two rows; pullers are comma-separated.
-    getTopHitsDeduped(window, 5),
+    // Deduped by card — first 10 SSR'd for Big Hits, paginated via the
+    // BigHitsLoadMore client component. 2× FMV/price filter baked into
+    // getTopHitsDeduped.
+    getTopHitsDeduped(window, 10),
+    getTopHitsDedupedCount(window),
     // 30-item feed + 24h KPIs for the embedded <LivePulse> below. The embed
     // is locked to 24h regardless of Pulse's window toggle (it's the "Live
     // now" snapshot, not the chosen-window-aggregate).
@@ -241,20 +244,14 @@ export default async function PulsePage({
         <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
         <TierStrip stats={tiers} />
 
-        {/* Big Hits — moved above Live so the day's highlight reel reads first */}
-        <SectionHead tag="BIG HITS" title={`Top hits · ${winLabel}`} right="MNSTR FMV" />
-        <div
-          className="mx-3"
-          style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
-        >
-          {topHitsDeduped.length === 0 ? (
-            <div className="px-3 py-5 text-center">
-              <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO PULLS IN WINDOW</Mono>
-            </div>
-          ) : (
-            topHitsDeduped.map((o, i) => <OutlierRow key={o.card_slug ?? i} outlier={o} first={i === 0} />)
-          )}
-        </div>
+        {/* Big Hits — FMV ≥ 2× pack price, deduped by card. Show more loads 10
+         * additional per click via /api/pulse/big-hits. */}
+        <SectionHead
+          tag="BIG HITS"
+          title={`Top hits · ${winLabel}`}
+          right={`${topHitsDeduped.length} OF ${topHitsDedupedTotal.toLocaleString('en-US')}`}
+        />
+        <BigHitsLoadMore window={window} initialRows={topHitsDeduped} total={topHitsDedupedTotal} />
 
         {/* Embedded live stream — full /live experience inline. Locked to
          * 24h regardless of Pulse window. The component polls /api/live
