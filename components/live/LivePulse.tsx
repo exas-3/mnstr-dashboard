@@ -142,7 +142,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
           return (
             <div
               key={it.request_id}
-              className="flex flex-col gap-1.5 p-2"
+              className="group relative flex flex-col gap-1.5 p-2"
               style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
             >
               {it.card_slug ? (
@@ -166,6 +166,47 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
                 <TierTag tier={it.tier as Tier} style={{ padding: '1px 4px', fontSize: 7.5 }} />
                 <StatusPill status={it.status} />
               </div>
+
+              {/* Hover preview — visible only below 2xl, where the inline grid
+               * cells are small. CSS-only via group-hover; pointer-events-none
+               * so cursor stays in the underlying card and the popover doesn't
+               * flicker as the cursor crosses its bounds. */}
+              {img && (
+                <div
+                  className="pointer-events-none absolute left-1/2 top-0 z-50 hidden -translate-x-1/2 -translate-y-[calc(100%+8px)] group-hover:block 2xl:!hidden"
+                  style={{ width: 240 }}
+                >
+                  <div
+                    style={{
+                      aspectRatio: '5/7',
+                      background: `center/contain no-repeat url("${img}"), var(--bg-3)`,
+                      border: `1px solid ${fmv >= 1000 ? 'var(--accent)' : 'var(--line)'}`,
+                      boxShadow:
+                        '0 16px 50px rgba(0,0,0,0.55), 0 0 0 1px color-mix(in oklch, var(--accent) 10%, transparent)',
+                    }}
+                  />
+                  <div
+                    className="mt-1.5 px-2 py-1.5 flex items-center justify-between"
+                    style={{ background: 'var(--bg-3)', border: '1px solid var(--line)' }}
+                  >
+                    <Mono
+                      style={{
+                        fontSize: 9.5,
+                        color: 'var(--fg)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                    >
+                      {it.card_title ?? 'unknown card'}
+                    </Mono>
+                    <Mono style={{ fontSize: 10, color: 'var(--accent)', marginLeft: 8 }}>
+                      ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    </Mono>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
