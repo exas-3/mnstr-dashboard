@@ -174,7 +174,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               {img && (
                 <div
                   className="pointer-events-none absolute left-1/2 top-0 z-50 hidden -translate-x-1/2 -translate-y-[calc(100%+8px)] group-hover:block 2xl:!hidden"
-                  style={{ width: 240 }}
+                  style={{ width: 360 }}
                 >
                   <div
                     style={{
