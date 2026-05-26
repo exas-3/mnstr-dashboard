@@ -63,10 +63,20 @@ export async function GET(
 
   // Fetch from upstream (cdn.mnstr.xyz)
   let upstreamBuf: Buffer;
+  const upstreamUrl = row.image_front;
   try {
-    const res = await fetch(row.image_front, { cache: 'no-store' });
+    const res = await fetch(upstreamUrl, { cache: 'no-store' });
     if (!res.ok) {
-      return new NextResponse(`upstream ${res.status}`, { status: 502 });
+      // 4xx = permanently gone (mnstr deleted/replaced the asset). Clear the
+      // stale URL from our DB so the next page render falls through to the
+      // placeholder pattern instead of bouncing off the CDN every visit.
+      // 5xx stays — could be transient on mnstr's side.
+      if (res.status >= 400 && res.status < 500) {
+        sql`UPDATE cards SET image_front = NULL WHERE slug = ${slug} AND image_front = ${upstreamUrl}`
+          .then(() => console.warn(`[img] cleared stale image_front for ${slug} (CDN ${res.status})`))
+          .catch(err => console.warn(`[img] failed to clear stale URL for ${slug}:`, err?.message));
+      }
+      return new NextResponse(`upstream ${res.status}`, { status: res.status === 404 ? 404 : 502 });
     }
     upstreamBuf = Buffer.from(await res.arrayBuffer());
   } catch (e) {
