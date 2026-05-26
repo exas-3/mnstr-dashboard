@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
+import { premiumFraction } from '@/lib/buyback';
 import type { MarketplaceSale } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -35,10 +36,10 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
   const img = sale.card_slug ? `/img/${sale.card_slug}` : sale.card_image_front;
   const title = sale.card_title ?? `Vault sale · #${sale.serial_number}`;
   const subtitle = sale.card_grading ?? (orphan ? 'sold direct from MnStr vault' : null);
-  // Premium relative to vault FMV (positive = sold above FMV).
-  const premium = sale.card_fmv != null && sale.card_fmv > 0
-    ? (sale.price_usd - sale.card_fmv) / sale.card_fmv
-    : null;
+  // Premium vs the protocol's buyback price (FMV × tier rate) — i.e. what the
+  // seller would have received from the protocol instead. Default mode here
+  // is fixed; the toggle lives on /cards + /wallets Recent history sections.
+  const premium = premiumFraction(sale.price_usd, sale.card_fmv, sale.card_tier, 'buyback');
   const premiumColor =
     premium == null ? 'var(--fg-4)'
     : premium >= 0 ? 'var(--positive)'
@@ -99,7 +100,7 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
         </Mono>
         {premium != null && (
           <Mono style={{ fontSize: 9, color: premiumColor, display: 'block', marginTop: 1 }}>
-            {premium >= 0 ? '+' : ''}{(premium * 100).toFixed(1)}% vs FMV
+            {premium >= 0 ? '+' : ''}{(premium * 100).toFixed(1)}% vs buyback
           </Mono>
         )}
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>

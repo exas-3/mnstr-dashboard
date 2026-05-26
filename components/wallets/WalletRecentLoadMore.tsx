@@ -7,7 +7,9 @@
 
 import { useState } from 'react';
 import WalletActivityRow from './WalletActivityRow';
+import PremiumModeToggle from '../PremiumModeToggle';
 import { Mono } from '../primitives';
+import type { PremiumMode } from '@/lib/buyback';
 import type { WalletActivity } from '@/lib/queries';
 
 const PAGE_SIZE = 10;
@@ -24,6 +26,8 @@ export default function WalletRecentLoadMore({
   const [rows, setRows] = useState<WalletActivity[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [premiumMode, setPremiumMode] = useState<PremiumMode>('buyback');
+  const hasSales = rows.some(r => r.kind === 'sale_buy' || r.kind === 'sale_sell');
 
   const remaining = Math.max(0, totalEvents - rows.length);
   const nextBatch = Math.min(remaining, PAGE_SIZE);
@@ -52,6 +56,9 @@ export default function WalletRecentLoadMore({
 
   return (
     <>
+      {hasSales && (
+        <PremiumModeToggle mode={premiumMode} onChange={setPremiumMode} />
+      )}
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         {rows.length === 0 ? (
           <div className="px-3 py-5 text-center">
@@ -59,7 +66,12 @@ export default function WalletRecentLoadMore({
           </div>
         ) : (
           rows.map((ev, i) => (
-            <WalletActivityRow key={`${ev.kind}:${ev.event_id}`} ev={ev} first={i === 0} />
+            <WalletActivityRow
+              key={`${ev.kind}:${ev.event_id}`}
+              ev={ev}
+              first={i === 0}
+              premiumMode={premiumMode}
+            />
           ))
         )}
       </div>

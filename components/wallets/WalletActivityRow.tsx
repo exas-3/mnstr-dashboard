@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
+import { premiumFraction, type PremiumMode } from '@/lib/buyback';
 import type { WalletActivity } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -33,9 +34,11 @@ function fmtDate(iso: string): string {
 export default function WalletActivityRow({
   ev,
   first,
+  premiumMode = 'buyback',
 }: {
   ev: WalletActivity;
   first?: boolean;
+  premiumMode?: PremiumMode;
 }) {
   const title = ev.card_title ?? 'unknown card';
   const img = ev.card_slug ? `/img/${ev.card_slug}` : ev.card_image_front;
@@ -99,16 +102,29 @@ export default function WalletActivityRow({
             </div>
           </>
         ) : (
-          <Mono
-            style={{
-              fontSize: 12,
-              color: ev.kind === 'sale_buy' ? 'var(--tier-magenta)' : 'var(--positive)',
-              display: 'block',
-            }}
-          >
-            {ev.kind === 'sale_buy' ? '-' : '+'}
-            {usd(ev.sale_price_usd, ev.sale_price_usd < 100 ? 2 : 0)}
-          </Mono>
+          <>
+            <Mono
+              style={{
+                fontSize: 12,
+                color: ev.kind === 'sale_buy' ? 'var(--tier-magenta)' : 'var(--positive)',
+                display: 'block',
+              }}
+            >
+              {ev.kind === 'sale_buy' ? '-' : '+'}
+              {usd(ev.sale_price_usd, ev.sale_price_usd < 100 ? 2 : 0)}
+            </Mono>
+            {(() => {
+              const p = premiumFraction(ev.sale_price_usd, ev.sale_card_fmv, ev.tier, premiumMode);
+              if (p == null) return null;
+              const pColor = p >= 0 ? 'var(--positive)' : 'var(--tier-magenta)';
+              const label = premiumMode === 'buyback' ? 'vs buyback' : 'vs FMV';
+              return (
+                <Mono style={{ fontSize: 9, color: pColor, display: 'block', marginTop: 1 }}>
+                  {p >= 0 ? '+' : ''}{(p * 100).toFixed(1)}% {label}
+                </Mono>
+              );
+            })()}
+          </>
         )}
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>
           {fmtDate(ev.ts)}

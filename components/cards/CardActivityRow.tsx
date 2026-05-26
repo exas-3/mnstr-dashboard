@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
+import { premiumFraction, type PremiumMode } from '@/lib/buyback';
 import type { CardActivity } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -32,9 +33,11 @@ function fmtDate(iso: string): string {
 export default function CardActivityRow({
   ev,
   first,
+  premiumMode = 'buyback',
 }: {
   ev: CardActivity;
   first?: boolean;
+  premiumMode?: PremiumMode;
 }) {
   if (ev.kind === 'pull') {
     const display = ev.username ?? shortAddr(ev.wallet);
@@ -89,13 +92,12 @@ export default function CardActivityRow({
   const sellerLabel = ev.seller_wallet
     ? (ev.seller_handle ? `@${ev.seller_handle}` : shortAddr(ev.seller_wallet))
     : 'MnStr vault';
-  const premium = ev.sale_card_fmv != null && ev.sale_card_fmv > 0
-    ? (ev.sale_price_usd - ev.sale_card_fmv) / ev.sale_card_fmv
-    : null;
+  const premium = premiumFraction(ev.sale_price_usd, ev.sale_card_fmv, ev.tier, premiumMode);
   const premiumColor =
     premium == null ? 'var(--fg-4)'
     : premium >= 0 ? 'var(--positive)'
     : 'var(--tier-magenta)';
+  const premiumLabel = premiumMode === 'buyback' ? 'vs buyback' : 'vs FMV';
   return (
     <div
       className="px-3.5 py-3"
@@ -135,7 +137,7 @@ export default function CardActivityRow({
         </Mono>
         {premium != null && (
           <Mono style={{ fontSize: 11, color: premiumColor }}>
-            {premium >= 0 ? '+' : ''}{(premium * 100).toFixed(1)}% vs FMV
+            {premium >= 0 ? '+' : ''}{(premium * 100).toFixed(1)}% {premiumLabel}
           </Mono>
         )}
       </div>

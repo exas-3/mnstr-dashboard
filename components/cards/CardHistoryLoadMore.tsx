@@ -2,11 +2,15 @@
 
 /* Unified activity feed for /cards/[slug] — pulls + marketplace sales,
  * ordered DESC by timestamp. First 20 SSR'd, "Show more" appends 10 at
- * a time via /api/cards/[slug]/activity until the combined pool is empty. */
+ * a time via /api/cards/[slug]/activity until the combined pool is empty.
+ * Toggle in the header switches the marketplace-row premium reference
+ * between buyback price (default) and FMV. */
 
 import { useState } from 'react';
 import CardActivityRow from './CardActivityRow';
+import PremiumModeToggle from '../PremiumModeToggle';
 import { Mono } from '../primitives';
+import type { PremiumMode } from '@/lib/buyback';
 import type { CardActivity } from '@/lib/queries';
 
 const PAGE_SIZE = 10;
@@ -23,6 +27,8 @@ export default function CardHistoryLoadMore({
   const [rows, setRows] = useState<CardActivity[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [premiumMode, setPremiumMode] = useState<PremiumMode>('buyback');
+  const hasSales = rows.some(r => r.kind === 'sale');
 
   const remaining = Math.max(0, totalEvents - rows.length);
   const nextBatch = Math.min(remaining, PAGE_SIZE);
@@ -51,6 +57,9 @@ export default function CardHistoryLoadMore({
 
   return (
     <>
+      {hasSales && (
+        <PremiumModeToggle mode={premiumMode} onChange={setPremiumMode} />
+      )}
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         {rows.length === 0 ? (
           <div className="px-3 py-5 text-center">
@@ -58,7 +67,12 @@ export default function CardHistoryLoadMore({
           </div>
         ) : (
           rows.map((ev, i) => (
-            <CardActivityRow key={`${ev.kind}:${ev.event_id}`} ev={ev} first={i === 0} />
+            <CardActivityRow
+              key={`${ev.kind}:${ev.event_id}`}
+              ev={ev}
+              first={i === 0}
+              premiumMode={premiumMode}
+            />
           ))
         )}
       </div>
