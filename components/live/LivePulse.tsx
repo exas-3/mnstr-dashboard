@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { KpiTile, Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
-import LiveHero from './LiveHero';
 import type { HitRow, Kpis } from '@/lib/queries';
 
 const POLL_MS = 5000;
@@ -64,8 +63,6 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
 
   // Use `tick` so age-out strings re-render
   void tick;
-  const newest = data.feed[0] ?? null;
-  const rest = data.feed.slice(1);
   const big = data.feed.filter(p => Number(p.fmv_usd ?? 0) >= 1000).length;
 
   return (
@@ -117,13 +114,8 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
 
       <SectionHead tag="STREAM" title="Latest pulls" right="NEWEST FIRST" />
 
-      <div className="lg:grid lg:gap-3 lg:px-2" style={{ gridTemplateColumns: '2fr 3fr' }}>
-        <div className="lg:min-w-0">
-          <LiveHero pull={newest} />
-        </div>
-
-        <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-4 lg:mx-0 lg:mt-0">
-          {rest.map(it => {
+      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+        {data.feed.map(it => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
           const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
@@ -177,7 +169,6 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
             </div>
           );
         })}
-        </div>
       </div>
 
       {!embed && (
@@ -186,7 +177,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
           style={{ borderTop: '1px dashed var(--line-soft)' }}
         >
           <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
-            † Big hits (≥$1k FMV) flash &amp; pin for 30s.
+            † Big hits (≥$1k FMV) are bordered in amber.
           </Mono>
         </div>
       )}

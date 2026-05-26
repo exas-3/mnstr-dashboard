@@ -67,8 +67,6 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
     };
   }, []);
 
-  const newest = data.feed[0] ?? null;
-  const rest = data.feed.slice(1);
   const bigCount = data.feed.filter(p => Number(p.fmv_usd ?? 0) >= BIG_HIT_USD).length;
 
   return (
@@ -118,58 +116,13 @@ export default function AsciiLive({ initial, embed = false }: { initial: LiveDat
         <AsciiKpi label="HITS" value={String(bigCount)} />
       </div>
 
-      {/* Newest pull hero */}
-      <AsciiBox title="NOW" glow>
-        {newest ? (
-          <div className="grid items-baseline gap-2" style={{ gridTemplateColumns: '1fr auto' }}>
-            <div>
-              <div style={{ color: 'var(--accent)', fontSize: 10, letterSpacing: '0.18em' }}>
-                ●{mounted && ` ${ago(newest.pulled_at)}`}
-              </div>
-              {newest.card_slug ? (
-                <Link
-                  href={`/cards/${newest.card_slug}`}
-                  className="hover:underline"
-                  style={{ color: 'var(--fg)', fontSize: 13, marginTop: 6, display: 'block' }}
-                >
-                  {asciiSlug(newest.card_title)}
-                </Link>
-              ) : (
-                <div style={{ color: 'var(--fg)', fontSize: 13, marginTop: 6 }}>
-                  {asciiSlug(newest.card_title)}
-                </div>
-              )}
-              {newest.card_set && (
-                <div style={{ color: 'var(--fg-4)', fontSize: 10, marginTop: 4 }}>
-                  {asciiSlug(newest.card_set)}
-                </div>
-              )}
-              <div className="mt-2 flex items-center gap-2">
-                <Link
-                  href={`/wallets/${newest.wallet}`}
-                  className="hover:underline"
-                  style={{ color: 'var(--fg)', fontSize: 11 }}
-                >
-                  {newest.username ? `@${newest.username}` : shortAddr(newest.wallet)}
-                </Link>
-                <AsciiTier tier={newest.tier as 'Starter' | 'Premium' | 'Ultra' | 'Adventure'} />
-                <AsciiStatus status={newest.status} />
-              </div>
-            </div>
-            <div style={{ color: 'var(--accent)', fontSize: 18, textAlign: 'right' }}>
-              {newest.payout_usd !== null && newest.status === 'sold_back' ? '+' : ''}$
-              {Math.round(Number(newest.payout_usd ?? newest.fmv_usd ?? 0)).toLocaleString('en-US')}
-            </div>
-          </div>
-        ) : (
-          <div style={{ color: 'var(--fg-4)', fontSize: 10 }}>WAITING FOR FIRST PULL...</div>
-        )}
-      </AsciiBox>
-
-      {/* Stream log */}
+      {/* Stream log — newest pull is just row 1, no separate hero */}
       <AsciiBox title="STREAM.LOG" right={`n=${data.feed.length}`}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.7 }}>
-          {rest.map(p => {
+          {data.feed.length === 0 && (
+            <div style={{ color: 'var(--fg-4)', fontSize: 10 }}>WAITING FOR FIRST PULL...</div>
+          )}
+          {data.feed.map(p => {
             const big = Number(p.fmv_usd ?? 0) >= BIG_HIT_USD;
             const who = p.username ? `@${p.username}` : shortAddr(p.wallet);
             const action = p.status === 'sold_back' ? 'SOLD' : 'HOLD';
