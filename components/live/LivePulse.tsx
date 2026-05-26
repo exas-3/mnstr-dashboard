@@ -173,7 +173,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
                * flicker as the cursor crosses its bounds. */}
               {img && (
                 <div
-                  className="pointer-events-none absolute left-1/2 top-0 z-50 hidden -translate-x-1/2 -translate-y-[calc(100%+8px)] group-hover:block 2xl:!hidden"
+                  className="pointer-events-none absolute left-1/2 top-1/2 z-50 hidden -translate-x-1/2 -translate-y-1/2 group-hover:block 2xl:!hidden"
                   style={{ width: 360 }}
                 >
                   <div
