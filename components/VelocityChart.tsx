@@ -209,7 +209,9 @@ export default function VelocityChart({
         )}
       </svg>
       <div className="flex justify-between px-3 pt-1 pb-2.5">
-        <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>−{span}{unit}</Mono>
+        <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>
+          {fmtBucket(data[0].day, granularity)}
+        </Mono>
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>now</Mono>
       </div>
 
