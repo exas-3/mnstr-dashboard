@@ -78,17 +78,37 @@ export interface VelocityPoint {
   adventure: number;
 }
 
-export async function getVelocityByTier(days = 30): Promise<VelocityPoint[]> {
-  const rows = await sql<Array<{ day: string; tier: string; pulls: number }>>`
-    SELECT
-      to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD') AS day,
-      tier,
-      COUNT(*)::int                                        AS pulls
-    FROM pulls_enriched
-    WHERE pulled_at >= now() - (${days} || ' days')::interval
-    GROUP BY 1, 2
-    ORDER BY 1
-  `;
+export type VelocityGranularity = 'day' | 'hour';
+
+/* Per-tier velocity over a recent span. Granularity controls the bucket
+ * width — `day` returns YYYY-MM-DD daily buckets, `hour` returns
+ * YYYY-MM-DD HH:00 hourly buckets. The 24h window uses hourly so the chart
+ * actually has 24 data points instead of a single bar. */
+export async function getVelocityByTier(
+  span = 30,
+  granularity: VelocityGranularity = 'day',
+): Promise<VelocityPoint[]> {
+  const rows = granularity === 'hour'
+    ? await sql<Array<{ day: string; tier: string; pulls: number }>>`
+        SELECT
+          to_char(date_trunc('hour', pulled_at), 'YYYY-MM-DD HH24:00') AS day,
+          tier,
+          COUNT(*)::int                                                  AS pulls
+        FROM pulls_enriched
+        WHERE pulled_at >= now() - (${span} || ' hours')::interval
+        GROUP BY 1, 2
+        ORDER BY 1
+      `
+    : await sql<Array<{ day: string; tier: string; pulls: number }>>`
+        SELECT
+          to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD') AS day,
+          tier,
+          COUNT(*)::int                                        AS pulls
+        FROM pulls_enriched
+        WHERE pulled_at >= now() - (${span} || ' days')::interval
+        GROUP BY 1, 2
+        ORDER BY 1
+      `;
   const byDay = new Map<string, VelocityPoint>();
   for (const r of rows) {
     const cur = byDay.get(r.day) ?? { day: r.day, starter: 0, premium: 0, ultra: 0, adventure: 0 };

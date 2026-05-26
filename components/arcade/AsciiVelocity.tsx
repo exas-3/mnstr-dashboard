@@ -41,10 +41,20 @@ function lineFor(values: number[], peak: number, color: string, label: string) {
   );
 }
 
-export default function AsciiVelocity({ data, days = 30 }: { data: VelocityPoint[]; days?: number }) {
+export default function AsciiVelocity({
+  data,
+  span = 30,
+  granularity = 'day',
+}: {
+  data: VelocityPoint[];
+  span?: number;
+  granularity?: 'day' | 'hour';
+}) {
+  const unit = granularity === 'hour' ? 'H' : 'D';
+  const noun = granularity === 'hour' ? 'packs/hour' : 'packs/day';
   if (data.length === 0) {
     return (
-      <AsciiBox title={`VELOCITY.${days}D`}>
+      <AsciiBox title={`VELOCITY.${span}${unit}`}>
         <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO DATA</Mono>
       </AsciiBox>
     );
@@ -55,16 +65,16 @@ export default function AsciiVelocity({ data, days = 30 }: { data: VelocityPoint
     ...data.map(d => Math.max(d.starter, d.premium, d.ultra, d.adventure)),
   );
   return (
-    <AsciiBox title={`VELOCITY.${days}D`}>
+    <AsciiBox title={`VELOCITY.${span}${unit}`}>
       <div className="mb-1.5" style={{ color: 'var(--fg-3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-        packs/day [S | M | U | A]
+        {noun} [S | M | U | A]
       </div>
       {lineFor(data.map(d => d.starter),   peak, 'var(--tier-blue)',    'STA')}
       {lineFor(data.map(d => d.premium),   peak, 'var(--accent)',       'MON')}
       {lineFor(data.map(d => d.ultra),     peak, 'var(--tier-magenta)', 'ULT')}
       {lineFor(data.map(d => d.adventure), peak, 'var(--tier-cyan)',    'ADV')}
       <div className="mt-2 flex justify-between" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)' }}>
-        <span>-{days}D</span>
+        <span>-{span}{unit}</span>
         <span>NOW</span>
       </div>
     </AsciiBox>

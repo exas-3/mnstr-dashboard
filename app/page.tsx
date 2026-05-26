@@ -35,16 +35,17 @@ const WINDOWS: Array<{ key: TimeWindowKey; label: string }> = [
   { key: 'all', label: 'ALL' },
 ];
 
-// Velocity chart day-count per window. Matches the toggle 1:1 except 24h —
-// a one-day chart is just a single bar, so we still render a 14-day backdrop
-// when the headline window is "last 24h". Other sections honour the
-// window exactly.
-const VELOCITY_DAYS: Record<TimeWindowKey, number> = {
-  '1h':  7,    // not used on Pulse but satisfies the type
-  '24h': 14,
-  '7d':  7,
-  '30d': 30,
-  all:   90,
+/* Velocity chart granularity + span per window:
+ *   24h  → 24 hourly buckets (last 24 hours)
+ *   7d   → 7 daily buckets
+ *   30d  → 30 daily buckets
+ *   all  → 90 daily buckets (capped — full all-time gets too wide) */
+const VELOCITY_SPAN: Record<TimeWindowKey, { span: number; granularity: 'day' | 'hour' }> = {
+  '1h':  { span: 7,  granularity: 'day'  },    // not used on Pulse but satisfies the type
+  '24h': { span: 24, granularity: 'hour' },
+  '7d':  { span: 7,  granularity: 'day'  },
+  '30d': { span: 30, granularity: 'day'  },
+  all:   { span: 90, granularity: 'day'  },
 };
 
 function usd(n: number, frac = 0): string {
@@ -95,7 +96,7 @@ export default async function PulsePage({
   const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, live, latestBlock] = await Promise.all([
     getTheme(),
     getKpisFor(window),
-    getVelocityByTier(VELOCITY_DAYS[window]),
+    getVelocityByTier(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
     getTierStats(window),
     // Single-pull list — used by the BigHitBanner because it needs a specific
     // pulled_at timestamp ("14s ago") and a single puller.
@@ -122,7 +123,8 @@ export default async function PulsePage({
           window,
           kpis,
           velocity,
-          velocityDays: VELOCITY_DAYS[window],
+          velocityDays: VELOCITY_SPAN[window].span,
+          velocityGranularity: VELOCITY_SPAN[window].granularity,
           tiers,
           topHits,
           live,
@@ -210,8 +212,17 @@ export default async function PulsePage({
           </div>
 
           {/* Velocity */}
-          <SectionHead tag="VELOCITY" title="Packs/day, stacked" right={`${VELOCITY_DAYS[window]}D BACKDROP`} />
-          <VelocityChart data={velocity} days={VELOCITY_DAYS[window]} />
+          {(() => {
+            const { span, granularity } = VELOCITY_SPAN[window];
+            const unit = granularity === 'hour' ? 'H' : 'D';
+            const titleNoun = granularity === 'hour' ? 'Packs/hour' : 'Packs/day';
+            return (
+              <>
+                <SectionHead tag="VELOCITY" title={`${titleNoun}, stacked`} right={`${span}${unit} BACKDROP`} />
+                <VelocityChart data={velocity} span={span} granularity={granularity} />
+              </>
+            );
+          })()}
 
           {/* Tier strip */}
           <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />

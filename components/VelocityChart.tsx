@@ -25,17 +25,34 @@ const TIERS: Array<{ key: 'starter' | 'premium' | 'ultra' | 'adventure'; label: 
   { key: 'adventure', label: 'Adventure', color: 'var(--tier-cyan)',    gradientId: 'velocity-adventure' },
 ];
 
-/* "2026-05-26" → "Tue · May 26" (UTC, fixed locale so SSR/CSR match). */
+/* Bucket label formatter — handles both daily ("YYYY-MM-DD") and hourly
+ * ("YYYY-MM-DD HH:00") inputs, fixed UTC parsing so SSR/CSR match. */
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-function fmtDay(iso: string): string {
-  // iso is "YYYY-MM-DD" — parse UTC to avoid local-tz drift.
+function fmtBucket(iso: string, granularity: 'day' | 'hour'): string {
+  if (granularity === 'hour') {
+    // "2026-05-26 14:00"
+    const [datePart, timePart] = iso.split(' ');
+    const [y, m, d] = datePart.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()} · ${timePart} UTC`;
+  }
+  // "2026-05-26"
   const [y, m, d] = iso.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   return `${WEEKDAYS[date.getUTCDay()]} · ${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }
 
-export default function VelocityChart({ data, days = 30 }: { data: VelocityPoint[]; days?: number }) {
+export default function VelocityChart({
+  data,
+  span = 30,
+  granularity = 'day',
+}: {
+  data: VelocityPoint[];
+  span?: number;
+  granularity?: 'day' | 'hour';
+}) {
+  const unit = granularity === 'hour' ? 'h' : 'd';
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -43,7 +60,7 @@ export default function VelocityChart({ data, days = 30 }: { data: VelocityPoint
     return (
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         <div className="px-3 pt-2.5 pb-1.5">
-          <Lbl>Velocity · {days}d</Lbl>
+          <Lbl>Velocity · {span}{unit}</Lbl>
         </div>
         <div className="px-3 py-8 text-center">
           <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO DATA</Mono>
@@ -119,7 +136,7 @@ export default function VelocityChart({ data, days = 30 }: { data: VelocityPoint
       style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
     >
       <div className="flex items-baseline px-3 pt-2.5 pb-1.5">
-        <Lbl>Velocity · {days}d</Lbl>
+        <Lbl>Velocity · {span}{unit}</Lbl>
         <div className="ml-auto flex gap-3">
           {TIERS.map(t => (
             <Mono key={t.key} style={{ fontSize: 8.5, color: t.color }}>
@@ -192,7 +209,7 @@ export default function VelocityChart({ data, days = 30 }: { data: VelocityPoint
         )}
       </svg>
       <div className="flex justify-between px-3 pt-1 pb-2.5">
-        <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>−{days}d</Mono>
+        <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>−{span}{unit}</Mono>
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>now</Mono>
       </div>
 
@@ -213,7 +230,7 @@ export default function VelocityChart({ data, days = 30 }: { data: VelocityPoint
           }}
         >
           <Mono style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.1em', display: 'block' }}>
-            {fmtDay(hovered.day)}
+            {fmtBucket(hovered.day, granularity)}
           </Mono>
           <div className="mt-1.5 grid gap-0.5">
             {TIERS.map(t => {

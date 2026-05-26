@@ -62,6 +62,7 @@ export interface ArcadePulseData {
   kpis: Kpis;
   velocity: VelocityPoint[];
   velocityDays: number;
+  velocityGranularity?: 'day' | 'hour';
   tiers: TierStats[];
   topHits: HitRow[];
   live: HitRow[];
@@ -70,7 +71,7 @@ export interface ArcadePulseData {
 }
 
 export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
-  const { window, kpis, velocity, velocityDays, tiers, topHits, live, bigHit, latestBlock } = data;
+  const { window, kpis, velocity, velocityDays, velocityGranularity = 'day', tiers, topHits, live, bigHit, latestBlock } = data;
   const winLabel = WINDOW_LABELS[window];
   const now = new Date();
   const dateLine = `${String(now.getUTCDate()).padStart(2, '0')}.${
@@ -158,7 +159,7 @@ export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
         <AsciiKpi label="USDM.ALL" value={abbrUsd(kpis.usdmCycledAllTimeUsd)} delta="cumulative" />
       </div>
 
-      <AsciiVelocity data={velocity} days={velocityDays} />
+      <AsciiVelocity data={velocity} span={velocityDays} granularity={velocityGranularity} />
 
       {/* Tier table */}
       <AsciiBox title="TIERS.PLAYER_EV">
