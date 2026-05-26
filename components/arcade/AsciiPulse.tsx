@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { AsciiBox, AsciiCaveat, AsciiHead, AsciiKpi, AsciiTier, AsciiTimePivot, type AsciiWindow } from './primitives';
 import AsciiVelocity from './AsciiVelocity';
+import AsciiLive from './AsciiLive';
 import type { HitRow, Kpis, TierStats, TimeWindowKey, VelocityPoint } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -68,10 +69,18 @@ export interface ArcadePulseData {
   live: HitRow[];
   bigHit: HitRow | null;
   latestBlock: { block: number; tier: string } | null;
+  // Initial data for the embedded <AsciiLive> at the bottom of the page.
+  // Kpis are 24h regardless of `window` (the embed is the live snapshot).
+  liveInitial: {
+    kpis: Kpis;
+    feed: HitRow[];
+    latestBlock: { block: number; tier: string } | null;
+    serverNow: string;
+  };
 }
 
 export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
-  const { window, kpis, velocity, velocityDays, velocityGranularity = 'day', tiers, topHits, live, bigHit, latestBlock } = data;
+  const { window, kpis, velocity, velocityDays, velocityGranularity = 'day', tiers, topHits, bigHit, latestBlock, liveInitial } = data;
   const winLabel = WINDOW_LABELS[window];
   const now = new Date();
   const dateLine = `${String(now.getUTCDate()).padStart(2, '0')}.${
@@ -191,39 +200,17 @@ export default function AsciiPulse({ data }: { data: ArcadePulseData }) {
         </table>
       </AsciiBox>
 
-      {/* Live stream log */}
-      <AsciiBox title="STREAM.LIVE" glow right={<Link href="/live" style={{ color: 'var(--accent)' }}>[ENTER] OPEN →</Link>}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.7 }}>
-          {live.map(p => {
-            const big = Number(p.fmv_usd ?? 0) >= 1000;
-            const who = p.username ? `@${p.username}` : shortAddr(p.wallet);
-            const action = p.status === 'sold_back' ? 'SOLD' : 'HOLD';
-            const value =
-              p.status === 'sold_back' && p.payout_usd
-                ? `+${usd(Number(p.payout_usd))}`
-                : usd(Number(p.fmv_usd ?? 0));
-            const tierCode = p.tier === 'Starter' ? 'STA' : p.tier === 'Premium' ? 'MON' : 'ULT';
-            return (
-              <div
-                key={p.request_id}
-                className="whitespace-pre"
-                style={{
-                  color: big ? 'var(--accent)' : 'var(--fg-2)',
-                  textShadow: big ? '0 0 6px color-mix(in oklch, var(--accent) 53%, transparent)' : 'none',
-                }}
-              >
-                <span style={{ color: 'var(--fg-4)' }}>[{ago(p.pulled_at).padEnd(6)}]</span>{' '}
-                <span style={{ color: 'var(--fg-3)' }}>{tierCode}</span>{' '}
-                <Link href={`/wallets/${p.wallet}`} className="hover:underline">
-                  {who.padEnd(20).slice(0, 20)}
-                </Link>{' '}
-                <span style={{ color: action === 'SOLD' ? 'var(--negative)' : 'var(--accent)' }}>{action}</span>{' '}
-                <span style={{ color: big ? 'var(--accent)' : 'var(--fg)' }}>{value}</span>
-              </div>
-            );
-          })}
-        </div>
-      </AsciiBox>
+      {/* Embedded /live experience — full hero + stream log + 24h KPIs,
+       * polls /api/live every 5s on its own. */}
+      <div className="px-3 pt-1 pb-1.5 flex items-baseline justify-between" style={{ color: 'var(--accent)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em' }}>
+          ● STREAM.LIVE
+        </span>
+        <Link href="/live" style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em' }}>
+          [ENTER] OPEN FULLSCREEN →
+        </Link>
+      </div>
+      <AsciiLive initial={liveInitial} embed />
 
       {/* Top hits */}
       <AsciiBox title="TOP_HITS.7D">

@@ -14,7 +14,7 @@ import { getTheme } from '@/lib/server-theme';
 import { KpiTile, Mono, SectionHead } from '@/components/primitives';
 import VelocityChart from '@/components/VelocityChart';
 import TierStrip from '@/components/pulse/TierStrip';
-import LiveTickerStrip from '@/components/pulse/LiveTickerStrip';
+import LivePulse from '@/components/live/LivePulse';
 import OutlierRow from '@/components/tiers/OutlierRow';
 import BigHitBanner from '@/components/BigHitBanner';
 import AsciiPulse from '@/components/arcade/AsciiPulse';
@@ -93,7 +93,7 @@ export default async function PulsePage({
     : params.w === 'all' ? 'all'
     : '24h';
 
-  const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, live, latestBlock] = await Promise.all([
+  const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, live, liveKpis, latestBlock] = await Promise.all([
     getTheme(),
     getKpisFor(window),
     getVelocityByTier(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
@@ -104,9 +104,20 @@ export default async function PulsePage({
     // Deduped by card — used by the Big Hits section so a card pulled twice
     // doesn't take two rows; pullers are comma-separated.
     getTopHitsDeduped(window, 5),
-    getLiveFeed(8),
+    // 30-item feed + 24h KPIs for the embedded <LivePulse> below. The embed
+    // is locked to 24h regardless of Pulse's window toggle (it's the "Live
+    // now" snapshot, not the chosen-window-aggregate).
+    getLiveFeed(30),
+    getKpisFor('24h'),
     getLatestIndexedBlock(),
   ]);
+
+  const liveInitial = {
+    kpis: liveKpis,
+    feed: live,
+    latestBlock,
+    serverNow: new Date().toISOString(),
+  };
 
   const cycled = abbrUsd(kpis.usdmCycledUsd);
   const payouts = abbrUsd(kpis.payoutUsd);
@@ -130,6 +141,7 @@ export default async function PulsePage({
           live,
           bigHit,
           latestBlock,
+          liveInitial,
         }}
       />
     );
@@ -228,17 +240,19 @@ export default async function PulsePage({
           <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
           <TierStrip stats={tiers} />
 
-          {/* Live ticker */}
+          {/* Embedded live stream — full /live experience inline. Locked to
+           * 24h regardless of Pulse window. The component polls /api/live
+           * every 5s on its own. */}
           <SectionHead
             tag="LIVE"
-            title="Recent pulls"
+            title="Live stream"
             right={
               <Link href="/live" style={{ color: 'var(--accent)' }}>
-                OPEN STREAM →
+                OPEN FULLSCREEN →
               </Link>
             }
           />
-          <LiveTickerStrip items={live} />
+          <LivePulse initial={liveInitial} embed />
         </div>
 
         {/* Big Hits side rail (cols 9-12 on lg, full row below on mobile/tablet) */}
