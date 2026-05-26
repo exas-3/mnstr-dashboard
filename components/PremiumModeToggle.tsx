@@ -27,7 +27,7 @@ export default function PremiumModeToggle({
           letterSpacing: '0.14em',
         }}
       >
-        SALE PREMIUM vs
+        MARKETPLACE SALE PREMIUM vs
       </span>
       <div
         role="tablist"
