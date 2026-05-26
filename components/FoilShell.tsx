@@ -242,7 +242,7 @@ export default function FoilShell({
 
         {/* Mobile bottom nav */}
         <nav
-          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t md:hidden"
           style={{
             borderColor: 'var(--line-soft)',
             background: 'color-mix(in oklch, var(--bg) 93%, transparent)',

@@ -1,6 +1,6 @@
 /* SVG glyphs ported from screens.jsx + app-features.jsx. */
 
-export function NavGlyph({ name, active }: { name: 'pulse' | 'tiers' | 'wallets' | 'cards' | 'live'; active?: boolean }) {
+export function NavGlyph({ name, active }: { name: 'pulse' | 'tiers' | 'wallets' | 'cards' | 'live' | 'marketplace'; active?: boolean }) {
   const c = active ? 'var(--accent)' : 'var(--fg-3)';
   const sw = 1.4;
   const inner = {
@@ -46,6 +46,12 @@ export function NavGlyph({ name, active }: { name: 'pulse' | 'tiers' | 'wallets'
         <circle cx="12" cy="12" r="3" fill={c} />
         <circle cx="12" cy="12" r="6.5" fill="none" stroke={c} strokeWidth={sw} opacity="0.55" />
         <circle cx="12" cy="12" r="10" fill="none" stroke={c} strokeWidth={sw} opacity="0.25" />
+      </g>
+    ),
+    marketplace: (
+      <g fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 8 L20 8 L18.5 17 L5.5 17 Z" />
+        <path d="M7 8 V5.5 a2 2 0 0 1 2 -2 h6 a2 2 0 0 1 2 2 V8" />
       </g>
     ),
   }[name];
