@@ -38,16 +38,19 @@ export default function TierHeroRow({
             </Mono>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {cat.tiers.map(t => {
+            {cat.tiers.map((t, ti) => {
               const e = econs[t.key];
               if (!e) return null;
               const on = t.key === active;
               const href = t.key === 'Premium' ? '/tiers' : `/tiers?tier=${t.key}`;
+              // When a category only has one tier (Adventure), drop it into
+              // column 3 so it sits beneath Ultra instead of beneath Starter.
+              const colStart = cat.tiers.length === 1 && ti === 0 ? 'col-start-3' : '';
               return (
                 <Link
                   key={t.key}
                   href={href}
-                  className="block px-4 py-4 transition-colors"
+                  className={`block px-4 py-4 transition-colors ${colStart}`}
                   style={{
                     background: on ? 'var(--bg-3)' : 'var(--bg-2)',
                     border: `1px solid ${on ? 'var(--accent)' : 'var(--line-soft)'}`,
