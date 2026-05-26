@@ -114,7 +114,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
 
       <SectionHead tag="STREAM" title="Latest pulls" right="NEWEST FIRST" />
 
-      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
         {data.feed.map(it => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
