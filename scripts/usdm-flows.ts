@@ -146,50 +146,107 @@ export async function backfillUsdmFlows(opts: BackfillUsdmOpts = {}): Promise<vo
   await linkSellbacksOnchain();
 }
 
+// A payout transfer can land a few blocks BEFORE its NFTSoldBack event
+// (observed min delta −5) and typically lands ~1 block after (observed max
+// +203). MAX_FORWARD bounds how far ahead we'll reach so a missing payout
+// can't make a sellback steal the next card's (much later) payout.
+const PAYOUT_SLACK_BACK = 5;
+const PAYOUT_MAX_FORWARD = 1000;
+
 /**
- * Per-sellback on-chain attribution: fill in `sellbacks.onchain_amount_usd`
- * for any rows that don't have it yet, by matching to the nearest-block
- * USDm IN transfer to the player. Idempotent — re-running only touches
- * rows still NULL.
+ * Per-sellback on-chain attribution: set `sellbacks.onchain_amount_usd` +
+ * `payout_tx_hash` to the actual USDm transfer that paid the player.
  *
- * Run after every usdm-flows backfill, OR continuously from the poll loop
- * so newly-indexed sellbacks get their on-chain payout linked within one
- * indexer cycle. The pulls_enriched view falls back to fmv × tier_rate
- * for any row that remains NULL.
+ * Payouts are individual operator→player ERC-20 transfers — one per card,
+ * settling ~1 block after the NFTSoldBack event in a separate tx (verified
+ * on-chain). A nearest-block match lets sibling sellbacks from the same player
+ * collide on one transfer (double-count) while orphaning the rest (under-
+ * count). Instead we assign greedily in time order, **consuming each transfer
+ * at most once**: walk a player's sellbacks oldest-first and take the earliest
+ * not-yet-used USDm-in transfer at/after the event (within the slack window).
+ *
+ * This is a full recompute (not NULL-only): it's idempotent and self-correcting
+ * when new sellbacks/payouts arrive between runs. Run after every usdm-flows
+ * backfill / from the poll loop. Sellbacks left unassigned keep NULL, and the
+ * pulls_enriched view falls back to fmv_at_pull × tier_rate for those.
  */
 export async function linkSellbacksOnchain(): Promise<number> {
-  const result = await sql`
-    UPDATE sellbacks s
-    SET onchain_amount_usd = match.amount_usd,
-        payout_tx_hash     = match.tx_hash
-    FROM (
-      SELECT
-        s2.request_id,
-        f.amount_usd,
-        f.tx_hash
-      FROM sellbacks s2
-      LEFT JOIN LATERAL (
-        SELECT f.amount_usd, f.tx_hash
-        FROM usdm_flows f
-        WHERE f.wallet = s2.player
-          AND f.direction = 'in'
-          -- Payout settles AFTER the NFTSoldBack event (separate ERC-4337 tx),
-          -- typically within tens of blocks. Forward-biased window.
-          AND f.block_number BETWEEN s2.block_number - 5 AND s2.block_number + 250
-        ORDER BY ABS(f.block_number - s2.block_number) ASC, f.log_index ASC
-        LIMIT 1
-      ) f ON TRUE
-      WHERE s2.onchain_amount_usd IS NULL
-    ) match
-    WHERE s.request_id = match.request_id
-      AND match.amount_usd IS NOT NULL
+  const sellbacks = await sql<
+    { request_id: string; player: string; block_number: string; amt: string | null; tx: string | null }[]
+  >`
+    SELECT request_id::text AS request_id, player, block_number::text AS block_number,
+           onchain_amount_usd::text AS amt, payout_tx_hash AS tx
+    FROM sellbacks
+    ORDER BY player, block_number, log_index
   `;
-  const updated = result.count ?? 0;
-  if (updated > 0) {
-    console.log(`[link-sellbacks] attributed ${updated} sellbacks to on-chain payouts`);
-    sql.notify('market_tick', '').catch(() => {});
+  const flows = await sql<
+    { player: string; block_number: string; tx_hash: string; amount_usd: string }[]
+  >`
+    SELECT wallet AS player, block_number::text AS block_number, tx_hash, amount_usd::text AS amount_usd
+    FROM usdm_flows
+    WHERE direction = 'in'
+    ORDER BY wallet, block_number, log_index
+  `;
+
+  // Bucket payout transfers by player, preserving (block, log_index) order.
+  const byPlayer = new Map<string, { block: number; tx: string; amount: string }[]>();
+  for (const f of flows) {
+    let arr = byPlayer.get(f.player);
+    if (!arr) { arr = []; byPlayer.set(f.player, arr); }
+    arr.push({ block: Number(f.block_number), tx: f.tx_hash, amount: f.amount_usd });
   }
-  return updated;
+
+  // Greedy one-to-one assignment, then diff against the stored values so we
+  // only write rows that actually change.
+  const changed: { request_id: string; amount: string | null; tx: string | null }[] = [];
+  let curPlayer = '';
+  let transfers: { block: number; tx: string; amount: string }[] = [];
+  let ti = 0;
+  for (const sb of sellbacks) {
+    if (sb.player !== curPlayer) {
+      curPlayer = sb.player;
+      transfers = byPlayer.get(curPlayer) ?? [];
+      ti = 0;
+    }
+    const sbBlock = Number(sb.block_number);
+    // A transfer before this sellback's window can't belong to it — nor to any
+    // later sellback (those have higher blocks) — so skip it permanently.
+    while (ti < transfers.length && transfers[ti].block < sbBlock - PAYOUT_SLACK_BACK) ti++;
+    let amount: string | null = null;
+    let tx: string | null = null;
+    if (ti < transfers.length && transfers[ti].block <= sbBlock + PAYOUT_MAX_FORWARD) {
+      amount = transfers[ti].amount;
+      tx = transfers[ti].tx;
+      ti++;
+    }
+    const sameAmt =
+      (sb.amt == null && amount == null) ||
+      (sb.amt != null && amount != null && Number(sb.amt) === Number(amount));
+    const sameTx = (sb.tx ?? null) === (tx ?? null);
+    if (!sameAmt || !sameTx) changed.push({ request_id: sb.request_id, amount, tx });
+  }
+
+  if (changed.length === 0) return 0;
+
+  const CHUNK = 2000;
+  for (let i = 0; i < changed.length; i += CHUNK) {
+    const slice = changed.slice(i, i + CHUNK);
+    await sql`
+      UPDATE sellbacks s
+      SET onchain_amount_usd = u.amount,
+          payout_tx_hash     = u.tx
+      FROM unnest(
+        ${slice.map(c => c.request_id)}::numeric[],
+        ${slice.map(c => c.amount)}::numeric[],
+        ${slice.map(c => c.tx)}::text[]
+      ) AS u(request_id, amount, tx)
+      WHERE s.request_id = u.request_id
+    `;
+  }
+
+  console.log(`[link-sellbacks] reassigned ${changed.length} sellbacks (one-to-one payout match)`);
+  sql.notify('market_tick', '').catch(() => {});
+  return changed.length;
 }
 
 /**
