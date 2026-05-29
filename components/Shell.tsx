@@ -2,29 +2,20 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import ThemeToggle from './ThemeToggle';
 import SearchOverlay from './SearchOverlay';
 import CaveatSheet from './CaveatSheet';
 import FoilShell from './FoilShell';
-import ArcadeShell from './ArcadeShell';
 import { metaFor, activeKey } from './NavLinks';
-import type { Theme } from '@/lib/theme';
 
-export default function Shell({
-  theme,
-  children,
-}: {
-  theme: Theme;
-  children: React.ReactNode;
-}) {
+export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<>{children}</>}>
-      <ShellInner theme={theme}>{children}</ShellInner>
+      <ShellInner>{children}</ShellInner>
     </Suspense>
   );
 }
 
-function ShellInner({ theme, children }: { theme: Theme; children: React.ReactNode }) {
+function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -48,30 +39,12 @@ function ShellInner({ theme, children }: { theme: Theme; children: React.ReactNo
     </>
   );
 
-  const themeToggle = <ThemeToggle />;
-
-  if (theme === 'arcade') {
-    return (
-      <ArcadeShell
-        meta={meta}
-        active={active}
-        onSearch={() => setSearchOpen(true)}
-        onInfo={() => setInfoOpen(true)}
-        themeToggle={themeToggle}
-        overlays={overlays}
-      >
-        {children}
-      </ArcadeShell>
-    );
-  }
-
   return (
     <FoilShell
       meta={meta}
       active={active}
       onSearch={() => setSearchOpen(true)}
       onInfo={() => setInfoOpen(true)}
-      themeToggle={themeToggle}
       overlays={overlays}
     >
       {children}

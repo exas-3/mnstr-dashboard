@@ -1,6 +1,14 @@
 /* SVG glyphs ported from screens.jsx + app-features.jsx. */
 
-export function NavGlyph({ name, active }: { name: 'pulse' | 'tiers' | 'wallets' | 'cards' | 'live' | 'marketplace'; active?: boolean }) {
+export function NavGlyph({
+  name,
+  active,
+  size = 28,
+}: {
+  name: 'pulse' | 'tiers' | 'wallets' | 'cards' | 'live' | 'marketplace';
+  active?: boolean;
+  size?: number;
+}) {
   const c = active ? 'var(--accent)' : 'var(--fg-3)';
   const sw = 1.4;
   const inner = {
@@ -56,7 +64,7 @@ export function NavGlyph({ name, active }: { name: 'pulse' | 'tiers' | 'wallets'
     ),
   }[name];
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
       {inner}
     </svg>
   );

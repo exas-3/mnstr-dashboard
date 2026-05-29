@@ -1,17 +1,16 @@
 import type { Metadata, Viewport } from 'next';
-import { cookies } from 'next/headers';
 import './globals.css';
 import { fontClasses } from './fonts';
 import Shell from '@/components/Shell';
-import { DEFAULT_THEME, THEME_COOKIE, isTheme } from '@/lib/theme';
 
-// Plausible — privacy-friendly analytics. Defaults to the snippet's literal
-// localhost:3001 (works when running Plausible alongside the dashboard on
-// the same box). For deployed instances, override via NEXT_PUBLIC_PLAUSIBLE_SRC
-// in .env so visitors' browsers can actually reach the script.
+// Plausible — privacy-friendly analytics. Served same-origin: nginx proxies
+// /js/pa-*.js and /api/event to the Plausible instance on :3001 and rewrites
+// the script's hardcoded http://IP:3001 endpoint to https://mnstr.watch, so
+// the browser never makes a mixed-content request. Override via
+// NEXT_PUBLIC_PLAUSIBLE_SRC for other deployments.
 const PLAUSIBLE_SRC =
   process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ||
-  'http://localhost:3001/js/pa-otWkGMENf8W9OIVErtvJY.js';
+  '/js/pa-1J_aFxeWPXTRucUP7Z47G.js';
 
 // Canonical origin for OG / Twitter / sitemap resolution. Defaults to the
 // future production domain; override via env for staging or to keep the IP
@@ -21,11 +20,20 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://mnstr.watch';
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'MnStr · Watch — Live MnStr gacha analytics on MegaETH',
+    default: 'MnStr · Watch — Pokémon TCG & One Piece gacha analytics',
     template: '%s · MnStr · Watch',
   },
-  description: 'A treasury of monsters. Public dashboard for the MnStr gacha card vault on MegaETH.',
+  description:
+    'Live on-chain analytics for the MnStr gacha — graded Pokémon TCG and One Piece collectible cards. Track pack pulls, buyback vs FMV pricing, big hits, and house edge.',
   applicationName: 'MnStr · Watch',
+  keywords: [
+    'MnStr', 'MnStr gacha', 'MnStr watch',
+    'Pokémon TCG', 'Pokemon cards', 'graded Pokemon cards',
+    'One Piece TCG', 'One Piece cards',
+    'TCG', 'collectible cards', 'card collecting', 'gacha',
+    'card gacha', 'pack pulls', 'buyback', 'FMV', 'fair market value',
+    'on-chain analytics', 'card vault', 'trading card analytics',
+  ],
   alternates: { canonical: '/' },
   icons: {
     icon: [
@@ -35,8 +43,9 @@ export const metadata: Metadata = {
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
   },
   openGraph: {
-    title: 'MnStr · Watch',
-    description: 'Live analytics for the MnStr gacha vault on MegaETH.',
+    title: 'MnStr · Watch — Pokémon TCG & One Piece gacha analytics',
+    description:
+      'Live on-chain analytics for the MnStr gacha — graded Pokémon TCG and One Piece collectible cards. Pack pulls, buyback vs FMV, big hits, house edge.',
     siteName: 'MnStr · Watch',
     url: '/',
     images: ['/og-default.png'],
@@ -44,8 +53,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'MnStr · Watch',
-    description: 'A treasury of monsters. Live analytics for the MnStr gacha on MegaETH.',
+    title: 'MnStr · Watch — Pokémon TCG & One Piece gacha analytics',
+    description:
+      'Live analytics for the MnStr Pokémon TCG & One Piece card gacha — pulls, buyback vs FMV, big hits.',
     images: ['/og-default.png'],
   },
 };
@@ -54,15 +64,11 @@ export const viewport: Viewport = {
   themeColor: '#d6a04a',
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const store = await cookies();
-  const raw = store.get(THEME_COOKIE)?.value;
-  const theme = isTheme(raw) ? raw : DEFAULT_THEME;
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme={theme} className={fontClasses}>
+    <html lang="en" data-theme="foil" className={fontClasses}>
       <body className="min-h-dvh">
-        <Shell theme={theme}>{children}</Shell>
-        {theme === 'arcade' && <div className="crt-overlay" aria-hidden />}
+        <Shell>{children}</Shell>
 
         {/* Privacy-friendly analytics by Plausible */}
         <script async src={PLAUSIBLE_SRC} />

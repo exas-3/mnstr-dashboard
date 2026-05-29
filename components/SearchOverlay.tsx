@@ -43,8 +43,8 @@ const QUICK_LINKS: ResultItem[] = [
   { kind: 'nav', key: 'nav-pulse',   href: '/',        primary: 'Pulse',   secondary: 'live activity + KPIs' },
   { kind: 'nav', key: 'nav-tiers',   href: '/tiers',   primary: 'Tiers',   secondary: 'pack economics by IP' },
   { kind: 'nav', key: 'nav-wallets', href: '/wallets', primary: 'Wallets', secondary: 'leaderboard' },
-  { kind: 'nav', key: 'nav-cards',   href: '/cards',   primary: 'Cards',   secondary: 'the vault' },
-  { kind: 'nav', key: 'nav-live',    href: '/live',    primary: 'Live',    secondary: '5-second stream' },
+  { kind: 'nav', key: 'nav-cards',       href: '/cards',       primary: 'Cards',       secondary: 'the vault' },
+  { kind: 'nav', key: 'nav-marketplace', href: '/marketplace', primary: 'Marketplace', secondary: 'secondary trades' },
 ];
 
 function shortAddr(a: string): string {

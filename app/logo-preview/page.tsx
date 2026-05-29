@@ -53,16 +53,6 @@ export default function LogoPreview() {
           </Row>
         </Section>
 
-        <Section title="Mono — used in Arcade theme (tinted with var(--accent))">
-          <Row dark>
-            {SIZES.map(s => (
-              <Cell key={s} label={`${s}px`}>
-                <MnstrWatch size={s} mono color="oklch(0.78 0.18 142)" />
-              </Cell>
-            ))}
-          </Row>
-        </Section>
-
         <Section title="Raw SVG assets from /public/ (no component wrapping)">
           <Row>
             {SIZES.map(s => (
@@ -98,14 +88,11 @@ export default function LogoPreview() {
 
         <Section title="In-context: header lockups (the way they appear in the app)">
           <Row>
-            <Cell label="Foil top bar · 24px">
+            <Cell label="Top bar · 24px">
               <Lockup size={24} mono={false} />
             </Cell>
-            <Cell label="Foil side rail · 28px">
+            <Cell label="Side rail · 28px">
               <Lockup size={28} mono={false} />
-            </Cell>
-            <Cell label="Arcade rail · 28px (mono green)">
-              <Lockup size={28} mono />
             </Cell>
           </Row>
         </Section>

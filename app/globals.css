@@ -1,11 +1,8 @@
 @import "tailwindcss";
 
 /* ===========================================================================
- * Theme tokens — both Foil Tactical and Arcade CRT set the same variable
- * names. Components consume them via var(--token) or Tailwind's bg-bg/text-fg
- * (bound via @theme inline below).
- *
- * Switch themes by setting data-theme="foil" | "arcade" on <html>.
+ * Theme tokens — single Foil Tactical palette. Components consume them via
+ * var(--token) or Tailwind's bg-bg/text-fg (bound via @theme inline below).
  * =========================================================================== */
 
 :root,
@@ -41,49 +38,6 @@
   /* Geometry */
   --radius: 4px;
   --shadow-glow: 0 0 0 1px var(--accent-dim);
-
-  /* CRT-specific (no-ops on Foil) */
-  --scanline-opacity: 0;
-  --vignette-opacity: 0;
-  --glow-text: none;
-}
-
-[data-theme="arcade"] {
-  /* Surfaces — pure black with phosphor green tint */
-  --bg:        oklch(0.10 0.01 145);
-  --bg-2:      oklch(0.14 0.02 145);
-  --bg-3:      oklch(0.18 0.03 145);
-  --line:      oklch(0.40 0.08 145);
-  --line-soft: oklch(0.28 0.05 145);
-
-  /* Text — phosphor green */
-  --fg:        oklch(0.92 0.18 142);
-  --fg-2:      oklch(0.80 0.15 142);
-  --fg-3:      oklch(0.65 0.12 142);
-  --fg-4:      oklch(0.45 0.10 142);
-
-  /* Accents */
-  --accent:      oklch(0.92 0.18 142);   /* same green = monochrome by default */
-  --accent-dim:  oklch(0.55 0.12 142);
-  --positive:    oklch(0.92 0.18 142);
-  --negative:    oklch(0.78 0.20 25);
-  --tier-blue:   oklch(0.78 0.16 220);
-  --tier-amber:  oklch(0.88 0.18 90);
-  --tier-magenta:oklch(0.78 0.22 330);
-  --tier-cyan:   oklch(0.82 0.18 200);  /* Adventure */
-
-  /* Typography */
-  --font-sans:    var(--font-mono, ui-monospace, monospace);
-  --font-display: var(--font-display, var(--font-mono));
-
-  /* Geometry */
-  --radius: 0px;
-  --shadow-glow: 0 0 8px var(--accent);
-
-  /* CRT */
-  --scanline-opacity: 0.08;
-  --vignette-opacity: 0.6;
-  --glow-text: 0 0 4px currentColor;
 }
 
 @theme inline {
@@ -123,45 +77,6 @@ body {
 /* Mono helper for tabular numerics */
 .mono { font-family: var(--font-mono); }
 .display { font-family: var(--font-display); }
-
-/* Arcade CRT chrome — scanline + vignette overlays, layered above content */
-.crt-overlay {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 100;
-}
-.crt-overlay::before {
-  /* horizontal scanlines */
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 2px,
-    rgba(0, 0, 0, var(--scanline-opacity)) 2px,
-    rgba(0, 0, 0, var(--scanline-opacity)) 3px
-  );
-}
-.crt-overlay::after {
-  /* corner vignette */
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 50%,
-    rgba(0, 0, 0, var(--vignette-opacity)) 100%
-  );
-}
-
-/* Arcade phosphor glow on accent text */
-[data-theme="arcade"] .glow,
-[data-theme="arcade"] h1,
-[data-theme="arcade"] h2 {
-  text-shadow: var(--glow-text);
-}
 
 /* Pulsing LIVE dot */
 @keyframes pulse-dot {
