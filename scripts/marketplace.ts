@@ -51,7 +51,11 @@ export async function insertSales(logs: CardBoughtLog[]): Promise<number> {
     )}
     ON CONFLICT (tx_hash, log_index) DO NOTHING
   `;
-  return result.count ?? 0;
+  const inserted = result.count ?? 0;
+  if (inserted > 0) {
+    sql.notify('market_tick', '').catch(() => {});
+  }
+  return inserted;
 }
 
 export async function insertPriceUpdates(logs: CardPriceUpdatedLog[]): Promise<number> {

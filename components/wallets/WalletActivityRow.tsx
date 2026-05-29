@@ -1,6 +1,10 @@
+'use client';
+
 import Link from 'next/link';
 import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
 import { premiumFraction, type PremiumMode } from '@/lib/buyback';
+import LocalTime from '../LocalTime';
+import { useHoverImagePopover } from '../HoverImagePopover';
 import type { WalletActivity } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -17,15 +21,6 @@ function usd(n: number, frac = 0): string {
   });
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  const day = d.getUTCDate();
-  const m = MONTHS[d.getUTCMonth()];
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const min = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${m} ${day} · ${h}:${min}`;
-}
 
 /* One row in the wallet's interleaved activity feed.
  * - kind='pull'      — the wallet pulled a card from a pack
@@ -42,13 +37,27 @@ export default function WalletActivityRow({
 }) {
   const title = ev.card_title ?? 'unknown card';
   const img = ev.card_slug ? `/img/${ev.card_slug}` : ev.card_image_front;
+  // Hover preview — magnified card image follows the cursor. Hidden at 2xl+.
+  const amount =
+    ev.kind === 'pull'
+      ? (ev.fmv_usd != null ? `$${Math.round(ev.fmv_usd).toLocaleString('en-US')}` : '')
+      : `$${Math.round(ev.sale_price_usd).toLocaleString('en-US')}`;
+  const { handlers, popover } = useHoverImagePopover({
+    image: img,
+    title,
+    amount,
+    hot: ev.kind === 'pull' && ev.fmv_usd != null && ev.fmv_usd >= 1000,
+    alwaysVisible: true,
+  });
+
   const inner = (
     <div
-      className="grid items-center gap-2.5 px-3 py-2"
+      className="grid items-center gap-2.5 px-3 py-2 relative"
       style={{
         gridTemplateColumns: '46px 1fr auto',
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
+      {...handlers}
     >
       <div
         style={{
@@ -76,6 +85,24 @@ export default function WalletActivityRow({
           >
             {ev.kind === 'pull' ? 'PULLED' : ev.kind === 'sale_buy' ? 'BOUGHT' : 'SOLD'}
           </Mono>
+          {/* Credit-paid pulls have price_usd = 0 (PlayAssigned amount = 0 for
+           * the 'credit' payment type per scripts/config.ts). No USDm leaves
+           * the wallet, so realized P&L for these pulls is $0 — flag them so
+           * "spend" not matching pack count makes sense. */}
+          {ev.kind === 'pull' && ev.price_usd === 0 && (
+            <Mono
+              style={{
+                fontSize: 8.5,
+                color: 'var(--tier-cyan)',
+                letterSpacing: '0.14em',
+                padding: '1px 4px',
+                border: '1px solid color-mix(in oklch, var(--tier-cyan) 35%, transparent)',
+                background: 'color-mix(in oklch, var(--tier-cyan) 7%, transparent)',
+              }}
+            >
+              CREDIT
+            </Mono>
+          )}
           {ev.kind !== 'pull' && (
             <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
               {ev.kind === 'sale_buy' ? 'from' : 'to'}{' '}
@@ -127,7 +154,7 @@ export default function WalletActivityRow({
           </>
         )}
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>
-          {fmtDate(ev.ts)}
+          <LocalTime iso={ev.ts} format="datetime" />
         </Mono>
       </div>
     </div>
@@ -135,10 +162,18 @@ export default function WalletActivityRow({
 
   if (ev.card_slug) {
     return (
-      <Link href={`/cards/${ev.card_slug}`} className="block">
-        {inner}
-      </Link>
+      <>
+        <Link href={`/cards/${ev.card_slug}`} className="block">
+          {inner}
+        </Link>
+        {popover}
+      </>
     );
   }
-  return inner;
+  return (
+    <>
+      {inner}
+      {popover}
+    </>
+  );
 }

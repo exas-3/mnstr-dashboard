@@ -1,9 +1,12 @@
 import { config } from './config.js';
 import { backfillAll } from './backfill.js';
 import { backfillSellbacks } from './sellbacks.js';
+import { backfillRedemptions } from './redemptions.js';
 import { backfillMarketplace } from './marketplace.js';
+import { backfillUsdmFlows, linkSellbacksOnchain } from './usdm-flows.js';
 import { getLatestBlock } from './chain.js';
 import { enrichPending, restatusHolding } from './enrich.js';
+import { refreshCardFmvs } from './fmv.js';
 import { startWs } from './ws.js';
 
 export async function pollOnce(): Promise<void> {
@@ -13,7 +16,15 @@ export async function pollOnce(): Promise<void> {
   const head = await getLatestBlock();
   await backfillAll(undefined, {}, head);
   await backfillSellbacks(undefined, {}, head);
+  await backfillRedemptions(undefined, {}, head);
   await backfillMarketplace({}, head);
+  // USDm flow indexing — ground truth for realized payouts. Runs after the
+  // sellback backfill so any sellback we just indexed has its matching USDm IN
+  // attributed by the linker inside backfillUsdmFlows.
+  await backfillUsdmFlows({ toBlock: head });
+  // Defensive second pass in case the linker inside backfillUsdmFlows
+  // raced past a just-inserted sellback row. Idempotent, cheap.
+  await linkSellbacksOnchain();
   await enrichPending();
 }
 
@@ -47,6 +58,11 @@ export async function pollLoop(): Promise<void> {
       // Restatus holding pulls every ~12 reconciles (~1h at 5-min cadence).
       if (i % 12 === 0) {
         await restatusHolding(500);
+      }
+      // Full per-card FMV refresh + history log every ~12 reconciles (~1h),
+      // offset by 6 so it doesn't run in the same cycle as restatus.
+      if (i % 12 === 6) {
+        await refreshCardFmvs();
       }
     } catch (e) {
       console.error('[poll] reconcile error:', e instanceof Error ? e.message : e);

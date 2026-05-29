@@ -21,6 +21,7 @@ import { BackIcon } from '@/components/Icons';
 import WalletRhythm from '@/components/wallets/WalletRhythm';
 import WalletNeighbours from '@/components/wallets/WalletNeighbours';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
+import CollectionTile from '@/components/wallets/CollectionTile';
 
 export const revalidate = 300;
 
@@ -158,7 +159,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
       >
         <div className="flex items-baseline justify-between">
-          <Lbl>Net P&amp;L · realised</Lbl>
+          <Lbl>Net P&amp;L</Lbl>
           {spark.length > 1 && (
             <Mono
               style={{
@@ -190,17 +191,29 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
             />
           )}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div>
-            <Lbl style={{ fontSize: 8.5 }}>Held FMV</Lbl>
-            <Mono style={{ fontSize: 13, color: 'var(--fg)', marginTop: 3 }}>
-              {usd(detail.vaultFmv)}
+            <Lbl style={{ fontSize: 8.5 }}>Realized</Lbl>
+            <Mono
+              style={{
+                fontSize: 13,
+                color: detail.realizedNet >= 0 ? 'var(--positive)' : 'var(--tier-magenta)',
+                marginTop: 3,
+              }}
+            >
+              {detail.realizedNet >= 0 ? '+' : ''}{usd(detail.realizedNet, 0)}
             </Mono>
           </div>
           <div>
-            <Lbl style={{ fontSize: 8.5 }}>Sold-back</Lbl>
+            <Lbl style={{ fontSize: 8.5 }}>Held · FMV</Lbl>
             <Mono style={{ fontSize: 13, color: 'var(--fg)', marginTop: 3 }}>
-              {usd(detail.payout)}
+              {usd(detail.vaultFmv, 0)}
+            </Mono>
+          </div>
+          <div>
+            <Lbl style={{ fontSize: 8.5 }}>Held · buyback</Lbl>
+            <Mono style={{ fontSize: 13, color: 'var(--fg)', marginTop: 3 }}>
+              {usd(detail.heldPaper, 0)}
             </Mono>
           </div>
           <div>
@@ -267,52 +280,9 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-2">
-            {detail.collection.map(h => {
-              const fmv = Number(h.fmv_usd ?? 0);
-              const hot = fmv >= 1000;
-              return (
-                <Link key={h.request_id} href={h.card_slug ? `/cards/${h.card_slug}` : '#'}>
-                  <div
-                    className="relative flex flex-col justify-between p-1.5"
-                    style={{
-                      aspectRatio: '5/7',
-                      background: (h.card_slug
-                        ? `center/contain no-repeat url("/img/${h.card_slug}"), var(--bg-3)`
-                        : h.card_image_front
-                          ? `center/contain no-repeat url("${h.card_image_front}"), var(--bg-3)`
-                          : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)'),
-                      border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-                      boxShadow: hot
-                        ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 18px color-mix(in oklch, var(--accent) 12%, transparent)'
-                        : 'none',
-                    }}
-                  >
-                    <div className="flex items-start justify-between">
-                      <Mono
-                        style={{
-                          fontSize: 8,
-                          color: TIER_COLOR[h.tier] ?? 'var(--fg-3)',
-                          letterSpacing: '0.1em',
-                        }}
-                      >
-                        {h.tier.toUpperCase()[0]}
-                      </Mono>
-                    </div>
-                    <Mono
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--fg)',
-                        background: 'color-mix(in oklch, var(--bg) 70%, transparent)',
-                        padding: '1px 4px',
-                        alignSelf: 'flex-start',
-                      }}
-                    >
-                      ${fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0)}
-                    </Mono>
-                  </div>
-                </Link>
-              );
-            })}
+            {detail.collection.map(h => (
+              <CollectionTile key={h.request_id} row={h} />
+            ))}
           </div>
         )}
       </div>
@@ -344,7 +314,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
           † Wallet ↔ username comes from MnStr profile; public, voluntary.
           <br />
-          † Net P&L revalues as held cards re-price; this view = realised only.
+          † Net P&L revalues as held cards re-price.
         </Mono>
       </div>
 

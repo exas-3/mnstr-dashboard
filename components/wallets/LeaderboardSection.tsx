@@ -13,7 +13,6 @@ import { Mono, SectionHead } from '../primitives';
 import LeaderboardRow from './LeaderboardRow';
 import PnlLadder from './PnlLadder';
 import EmptyState from '../EmptyState';
-import WalletPreviewPane from './WalletPreviewPane';
 import type { LadderRow, WalletRow, WalletSort } from '@/lib/queries';
 
 const PAGE_SIZE = 25;
@@ -78,10 +77,7 @@ export default function LeaderboardSection({
   }
 
   return (
-    <div
-      className="md:grid md:gap-3 md:px-2 xl:gap-4"
-      style={{ gridTemplateColumns: 'minmax(0, 1fr) clamp(260px, 26vw, 340px)' }}
-    >
+    <div className="md:px-2">
       <div className="md:min-w-0">
         {/* Ladder: tracks the current table state, redraws as rows grow. */}
         <SectionHead
@@ -152,12 +148,6 @@ export default function LeaderboardSection({
             <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
           </div>
         )}
-      </div>
-
-      {/* Master-detail preview pane (xl+ only). Reflects the table's current top
-       * rows — grows in sync since `rows` is shared state. */}
-      <div className="hidden md:block md:pt-2">
-        <WalletPreviewPane rows={rows} />
       </div>
     </div>
   );

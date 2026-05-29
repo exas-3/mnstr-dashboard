@@ -69,6 +69,11 @@ export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promi
     // It does NOT return per-pull status or payoutUsd. fmv comes from card.fmv.
     // Top-level fmvUsd/payoutUsd/status are populated only by the live /gacha/recent-pulls feed.
     const fmv = num(pull.fmvUsd) ?? (pull.card?.fmv ?? null);
+    // Snapshot guard: refuse to set fmv_at_pull_usd to 0 / null. The fast-enrich
+    // path can race ahead of mnstr's backend card assignment — when that happens,
+    // pull.card.fmv comes back as 0 and we'd freeze a zero value forever. Treat
+    // anything ≤ 0 as "not yet known" so a later restatus pass populates it.
+    const fmvForSnapshot = fmv != null && fmv > 0 ? fmv : null;
     // fmv_usd = latest vault appraisal (overwritten every enrich, marks
     // holdings to market). fmv_at_pull_usd = frozen at first enrich — the
     // protocol's buyback commitment at pull time, used by paper P&L so it
@@ -76,7 +81,7 @@ export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promi
     await sql`
       UPDATE pulls SET
         fmv_usd           = ${fmv},
-        fmv_at_pull_usd   = COALESCE(pulls.fmv_at_pull_usd, ${fmv}),
+        fmv_at_pull_usd   = COALESCE(pulls.fmv_at_pull_usd, ${fmvForSnapshot}),
         payout_usd        = ${num(pull.payoutUsd)},
         status            = ${pull.status ?? null},
         card_slug         = ${cardSlug},
@@ -88,6 +93,9 @@ export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promi
         status_checked_at = now()
       WHERE request_id = ${requestId.toString()}
     `;
+    // Second SSE tick after the row is fully enriched — first tick (from
+    // insert) had no title/image/username; this one does. Cheap to over-notify.
+    sql.notify('pulls_tick', '').catch(() => {});
     return 'ok';
   } catch (e) {
     console.error(`enrich ${requestId} error:`, e instanceof Error ? e.message : e);
@@ -127,10 +135,20 @@ export async function enrichPending(limit = 5000): Promise<void> {
 
 export async function restatusHolding(limit = 2000): Promise<void> {
   const cutoff = new Date(Date.now() - config.restatusAgeHours * 3600 * 1000);
+  // Re-check anything where (a) status is still pending OR (b) the fast-enrich
+  // raced and we got back an empty card payload (no slug or fmv=0). Once
+  // mnstr's backend assigns the card, a later restatus picks it up.
   const rows = await sql<{ request_id: string }[]>`
     SELECT request_id::text AS request_id
     FROM pulls
-    WHERE (status IS NULL OR status = 'holding')
+    WHERE (
+        status IS NULL
+        OR status = ''
+        OR status = 'holding'
+        OR card_slug IS NULL
+        OR fmv_at_pull_usd IS NULL
+        OR fmv_at_pull_usd = 0
+      )
       AND (status_checked_at IS NULL OR status_checked_at < ${cutoff})
     ORDER BY status_checked_at ASC NULLS FIRST
     LIMIT ${limit}
@@ -152,7 +170,7 @@ export async function restatusHolding(limit = 2000): Promise<void> {
   console.log(`[restatus] done ok=${ok} err=${err}`);
 }
 
-async function runWithConcurrency<T>(
+export async function runWithConcurrency<T>(
   items: T[],
   concurrency: number,
   worker: (item: T) => Promise<void>,

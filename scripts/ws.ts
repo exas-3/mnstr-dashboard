@@ -68,25 +68,37 @@ async function fetchBlockTimestamp(blockHex: string): Promise<number> {
   const blockNum = parseInt(blockHex, 16);
   const cached = blockTsCache.get(blockNum);
   if (cached != null) return cached;
-  const res = await fetch(config.alchemyRpc, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_getBlockByNumber',
-      params: [blockHex, false],
-    }),
-  });
-  const j = await res.json();
-  const ts = parseInt(j?.result?.timestamp ?? '0x0', 16);
-  blockTsCache.set(blockNum, ts);
-  if (blockTsCache.size > BLOCK_CACHE_CAP) {
-    // Evict the oldest 25% — simple bulk trim, no need for true LRU here.
-    const trim = Array.from(blockTsCache.keys()).slice(0, BLOCK_CACHE_CAP / 4);
-    for (const k of trim) blockTsCache.delete(k);
+  // Retry on transient failures or 0-timestamp responses. Pre-2026-05-27 we had
+  // 6 epoch-zero pulls in the DB because the first attempt returned 0 and we
+  // didn't retry — keeping the retry tight (3 attempts, ~250ms backoff) since
+  // we're on the WS hot path and reconcile will catch anything we drop.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(config.alchemyRpc, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBlockByNumber',
+        params: [blockHex, false],
+      }),
+    });
+    const j = await res.json();
+    const tsHex = j?.result?.timestamp;
+    if (tsHex && tsHex !== '0x0') {
+      const ts = parseInt(tsHex, 16);
+      blockTsCache.set(blockNum, ts);
+      if (blockTsCache.size > BLOCK_CACHE_CAP) {
+        const trim = Array.from(blockTsCache.keys()).slice(0, BLOCK_CACHE_CAP / 4);
+        for (const k of trim) blockTsCache.delete(k);
+      }
+      return ts;
+    }
+    await new Promise(r => setTimeout(r, 250 * (attempt + 1)));
   }
-  return ts;
+  // 3 retries exhausted — throw so handleLog skips this insert. The reconcile
+  // poll (which uses Etherscan, separate code path) will fill it in later.
+  throw new Error(`eth_getBlockByNumber returned no timestamp for block ${blockHex}`);
 }
 
 async function toRawLog(wsLog: AlchemyWsLog): Promise<RawLog> {

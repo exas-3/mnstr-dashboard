@@ -17,6 +17,10 @@ export const config = {
   chainId: Number(process.env.CHAIN_ID ?? 4326),
   rpcUrl: process.env.RPC_URL ?? 'https://mainnet.megaeth.com/rpc',
   alchemyRpc: ALCHEMY_RPC,
+  // Separate Alchemy endpoint for heavy backfill scans (eth_getLogs over wide
+  // block ranges). Keeps the live-indexer's rate budget on `alchemyRpc`
+  // untouched. Falls back to alchemyRpc if not set.
+  alchemyRpcBackfill: process.env.ALCHEMY_RPC_BACKFILL ?? ALCHEMY_RPC,
   // Alchemy supports the same key over wss:// — used by the live indexer
   // (scripts/ws.ts). Override via ALCHEMY_WS_URL if your provider is different.
   alchemyWsUrl: process.env.ALCHEMY_WS_URL ?? deriveWsUrl(ALCHEMY_RPC),
@@ -42,7 +46,19 @@ export const PLAY_ASSIGNED_TOPIC =
 export const NFT_SOLD_BACK_TOPIC =
   '0x470edf61f207ead5df345d69e26eca28753ddbc48914228dcd4202d9d9dcea51';
 
+// NFTRedeemed(address indexed player, uint256 indexed requestId) — fires when
+// the player redeems their card for physical shipment. After this, the card
+// has left the protocol's vault and should be excluded from held-FMV / paper-
+// payout liability math. keccak256("NFTRedeemed(address,uint256)").
+export const NFT_REDEEMED_TOPIC =
+  '0x14c9b4d4f4cc58cdc10083ad4d08288a39df874bbf3e4e0846f3fd1352d48c87';
+
 export const PULL_TOPICS = [PLAY_ASSIGNED_TOPIC] as const;
+
+// ERC-20 Transfer(address indexed from, address indexed to, uint256 value)
+// — used to mirror on-chain USDm flows for realized P&L ground truth.
+export const TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 export type PaymentType = 'usdm';
 

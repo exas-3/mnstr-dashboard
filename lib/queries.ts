@@ -32,6 +32,8 @@ export interface Kpis {
   usdmCycledAllTimeUsd: number;
   payoutUsd: number;            // sum(payout_usd) for sold-back in window
   walletsActive: number;        // distinct wallets in window
+  bigHits: number;              // pulls with fmv_usd >= $1k in window
+  heldFmvUsd: number;           // outstanding FMV liability — sum of fmv for holding pulls in window
 }
 
 export async function getKpisFor(window: TimeWindowKey): Promise<Kpis> {
@@ -41,12 +43,16 @@ export async function getKpisFor(window: TimeWindowKey): Promise<Kpis> {
     cycled: string;
     payout: string;
     wallets: number;
+    big_hits: number;
+    held_fmv: string;
   }>>`
     SELECT
       COUNT(*)::int                                                          AS packs,
       COALESCE(SUM(price_usd), 0)::text                                      AS cycled,
       COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text AS payout,
-      COUNT(DISTINCT wallet)::int                                            AS wallets
+      COUNT(DISTINCT wallet)::int                                            AS wallets,
+      COUNT(*) FILTER (WHERE fmv_usd >= 1000)::int                           AS big_hits,
+      COALESCE(SUM(fmv_usd) FILTER (WHERE status = 'holding'), 0)::text      AS held_fmv
     FROM pulls_enriched
     WHERE pulled_at >= now() - ${interval}::interval
   `;
@@ -63,6 +69,8 @@ export async function getKpisFor(window: TimeWindowKey): Promise<Kpis> {
     usdmCycledAllTimeUsd: Number(a?.cycled ?? 0),
     payoutUsd: Number(w?.payout ?? 0),
     walletsActive: w?.wallets ?? 0,
+    bigHits: w?.big_hits ?? 0,
+    heldFmvUsd: Number(w?.held_fmv ?? 0),
   };
 }
 
@@ -169,6 +177,7 @@ export interface HitRow {
   wallet: string;
   price_usd: string;
   fmv_usd: string | null;
+  fmv_at_pull_usd?: string | null;   // frozen pull-time FMV (populated by getTopHits)
   payout_usd: string | null;
   status: string;
   pulled_at: string;
@@ -188,14 +197,15 @@ export async function getTopHits(window: TimeWindowKey, limit = 5): Promise<HitR
       p.wallet,
       p.price_usd::text          AS price_usd,
       p.fmv_usd::text            AS fmv_usd,
+      p.fmv_at_pull_usd::text    AS fmv_at_pull_usd,
       p.payout_usd::text         AS payout_usd,
       p.status,
       p.pulled_at::text          AS pulled_at
     FROM pulls_enriched p
     LEFT JOIN cards c ON c.slug = p.card_slug
-    WHERE p.fmv_usd IS NOT NULL
+    WHERE p.fmv_at_pull_usd IS NOT NULL
       AND p.pulled_at >= now() - ${intervalFor(window)}::interval
-    ORDER BY p.fmv_usd DESC
+    ORDER BY p.fmv_at_pull_usd DESC
     LIMIT ${limit}
   `;
 }
@@ -246,16 +256,23 @@ export async function getLiveFeed(limit = 30): Promise<HitRow[]> {
  * ───────────────────────────────────────────────────────────── */
 
 export type PnlMode = 'realised' | 'paper';
+export type EvBasis = 'buyback' | 'fmv';
 
 export interface TierEconomics {
   tier: string;
   price: number;
   pulls: number;
   revenue: number;
-  payouts: number;       // realised or paper
+  payouts: number;       // realised or paper, using the selected ev basis
   pnlHouse: number;      // revenue - payouts
-  edge: number;          // pnlHouse / revenue
-  ev: number;            // payouts / pulls
+  edge: number;          // pnlHouse / revenue (for selected basis)
+  ev: number;            // payouts / pulls (for selected basis)
+  // FMV-basis counterparts — `ev` and `edge` mirror these when basis='fmv'.
+  // Surfaced separately so the page can render both bases without a re-fetch.
+  edgeBuyback: number;
+  evBuyback: number;
+  edgeFmv: number;
+  evFmv: number;
   sellbackRate: number;  // sold_back / total
   hitAbovePriceRate: number;
   median: number | null;
@@ -265,16 +282,26 @@ export interface TierEconomics {
   vaultFmv: number;      // sum of fmv for holding pulls (= unrealised exposure side)
 }
 
-/* Per-tier buyback rate (% of FMV paid out on sell-back). Single source of
- * truth lives in the SQL view (sql/007_*.sql) — `paper_payout_usd` already
- * applies the right per-tier multiplier. */
-export async function getTierEconomics(tier: string, mode: PnlMode): Promise<TierEconomics> {
+/* Per-tier economics with both EV bases pre-computed.
+ *   buyback EV = paper_payout_usd  (= fmv_at_pull × per-tier buyback rate)
+ *   FMV EV     = fmv_at_pull_usd   (raw market value, ignores buyback discount)
+ * Caller picks which to display via the `basis` arg; the other is still
+ * returned (edgeBuyback / evBuyback vs edgeFmv / evFmv) so the page can
+ * render both without a second query. */
+export async function getTierEconomics(
+  tier: string,
+  mode: PnlMode,
+  basis: EvBasis = 'buyback',
+): Promise<TierEconomics> {
   const [r] = await sql<Array<{
     price: string;
     pulls: number;
+    valued_pulls: number;
     revenue: string;
+    revenue_valued: string;
     payouts_realised: string;
-    payouts_paper: string;
+    payouts_paper_buyback: string;
+    payouts_paper_fmv: string;
     sold_back: number;
     hit_above_price: number;
     median: string | null;
@@ -286,9 +313,15 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
     SELECT
       MAX(price_usd)::text                                                    AS price,
       COUNT(*)::int                                                           AS pulls,
+      -- valued_pulls = pulls we actually have FMV data for. Mnstr occasionally
+      -- leaves a pull with no card assignment (card_slug NULL, fmv=0); those
+      -- contribute neither to numerator nor denominator of the EV calc.
+      COUNT(*) FILTER (WHERE fmv_at_pull_usd IS NOT NULL)::int                AS valued_pulls,
       COALESCE(SUM(price_usd), 0)::text                                       AS revenue,
+      COALESCE(SUM(price_usd) FILTER (WHERE fmv_at_pull_usd IS NOT NULL), 0)::text AS revenue_valued,
       COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text  AS payouts_realised,
-      COALESCE(SUM(paper_payout_usd), 0)::text                                AS payouts_paper,
+      COALESCE(SUM(paper_payout_usd), 0)::text                                AS payouts_paper_buyback,
+      COALESCE(SUM(fmv_at_pull_usd), 0)::text                                 AS payouts_paper_fmv,
       COUNT(*) FILTER (WHERE status = 'sold_back')::int                       AS sold_back,
       COUNT(*) FILTER (WHERE fmv_at_pull_usd >= price_usd)::int               AS hit_above_price,
       percentile_cont(0.50) WITHIN GROUP (ORDER BY fmv_at_pull_usd)::text     AS median,
@@ -299,9 +332,19 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
     FROM pulls_enriched
     WHERE tier = ${tier}
   `;
+  // Display pulls = total (including never-assigned ones). EV math uses the
+  // VALUED pull count so unassigned ghost pulls don't drag the mean down.
   const pulls = r?.pulls ?? 0;
+  const valuedPulls = r?.valued_pulls ?? pulls;
   const revenue = Number(r?.revenue ?? 0);
-  const payouts = mode === 'realised' ? Number(r?.payouts_realised ?? 0) : Number(r?.payouts_paper ?? 0);
+  const revenueValued = Number(r?.revenue_valued ?? revenue);
+  // Realised mode always uses on-chain payout (post-sql/013 view).
+  // Paper mode swaps between buyback and FMV.
+  const payoutsBuyback = mode === 'realised'
+    ? Number(r?.payouts_realised ?? 0)
+    : Number(r?.payouts_paper_buyback ?? 0);
+  const payoutsFmv = Number(r?.payouts_paper_fmv ?? 0);
+  const payouts = basis === 'fmv' ? payoutsFmv : payoutsBuyback;
   const soldBack = r?.sold_back ?? 0;
   const hitAbovePrice = r?.hit_above_price ?? 0;
   return {
@@ -310,9 +353,13 @@ export async function getTierEconomics(tier: string, mode: PnlMode): Promise<Tie
     pulls,
     revenue,
     payouts,
-    pnlHouse: revenue - payouts,
-    edge: revenue > 0 ? (revenue - payouts) / revenue : 0,
-    ev: pulls > 0 ? payouts / pulls : 0,
+    pnlHouse: revenueValued - payouts,
+    edge: revenueValued > 0 ? (revenueValued - payouts) / revenueValued : 0,
+    ev: valuedPulls > 0 ? payouts / valuedPulls : 0,
+    edgeBuyback: revenueValued > 0 ? (revenueValued - payoutsBuyback) / revenueValued : 0,
+    evBuyback:   valuedPulls > 0 ? payoutsBuyback / valuedPulls : 0,
+    edgeFmv:     revenueValued > 0 ? (revenueValued - payoutsFmv) / revenueValued : 0,
+    evFmv:       valuedPulls > 0 ? payoutsFmv / valuedPulls : 0,
     sellbackRate: pulls > 0 ? soldBack / pulls : 0,
     hitAbovePriceRate: pulls > 0 ? hitAbovePrice / pulls : 0,
     median: r?.median ? Number(r.median) : null,
@@ -338,38 +385,82 @@ export interface FmvDistribution {
   n: number;
   price: number;
   median: number | null;
+  mean: number | null;
+  // Observed log10 range per tier — each tier's bar chart is fitted to its
+  // own [low, high] so Adventure ($90–$870) and Starter ($5–$3k) both get
+  // the full chart width instead of sharing a fixed $1–$100k axis.
+  logMin: number;
+  logMax: number;
   outliers: Array<{ slug: string | null; title: string | null; fmv: number; username: string | null; wallet: string }>;
 }
 
-export async function getTierFMVDistribution(tier: string): Promise<FmvDistribution> {
-  // 24 bins from log10($1) to log10($100,000)
-  const BIN_MIN = 0;
-  const BIN_MAX = 5;
-  const BIN_COUNT = 24;
+// Per-tier buyback rate. Mirrors sql/006 / sql/013 — kept in TS for cheap
+// arithmetic at query time (no view rebuild needed for the basis toggle).
+const TIER_BUYBACK_RATE: Record<string, number> = {
+  Starter:   0.87,
+  Premium:   0.91,
+  Ultra:     0.95,
+  Adventure: 0.90,
+};
+
+export async function getTierFMVDistribution(
+  tier: string,
+  basis: EvBasis = 'fmv',
+): Promise<FmvDistribution> {
+  // Multiplier applied to fmv_usd. 'fmv' = raw FMV (mnstr's displayed value).
+  // 'buyback' = fmv × per-tier rate — the cash a player would actually receive
+  // on sellback. Aligns the distribution with the EV basis toggle on /tiers.
+  const rate = basis === 'buyback' ? (TIER_BUYBACK_RATE[tier] ?? 0.85) : 1;
+
+  // Per-tier observed range: log10(min_value)..log10(max_value). Each tier
+  // gets its own [low, high] so the bars use the full chart width instead
+  // of sitting in a narrow slice of a fixed $1–$100k axis.
+  const [range] = await sql<Array<{ log_min: string | null; log_max: string | null }>>`
+    SELECT
+      log(MIN(fmv_usd) * ${rate})::text AS log_min,
+      log(MAX(fmv_usd) * ${rate})::text AS log_max
+    FROM pulls_enriched
+    WHERE tier = ${tier} AND fmv_usd IS NOT NULL AND fmv_usd > 0
+  `;
+  const rawMin = range?.log_min ? Number(range.log_min) : 0;
+  const rawMax = range?.log_max ? Number(range.log_max) : 5;
+  const PAD_LOG = 0.05;
+  // Guarantee a minimum span of 0.5 log units (~3×) so tiers with a tight
+  // range don't render as a microscopic spike.
+  const span = Math.max(rawMax - rawMin, 0.5);
+  const center = (rawMin + rawMax) / 2;
+  const logMin = (rawMax - rawMin >= 0.5 ? rawMin : center - span / 2) - PAD_LOG;
+  const logMax = (rawMax - rawMin >= 0.5 ? rawMax : center + span / 2) + PAD_LOG;
+  // High-resolution server bins. The client aggregates these down to a width-
+  // dependent count (more bars on wide screens, fewer on narrow), so we want
+  // enough granularity here that any reasonable client target divides cleanly.
+  const BIN_COUNT = 200;
+
   const bins = await sql<Array<{ bin: number; count: number }>>`
     WITH p AS (
-      SELECT fmv_usd FROM pulls_enriched
+      SELECT fmv_usd * ${rate} AS value FROM pulls_enriched
       WHERE tier = ${tier} AND fmv_usd IS NOT NULL AND fmv_usd > 0
     )
     SELECT
-      width_bucket(log(fmv_usd), ${BIN_MIN}, ${BIN_MAX}, ${BIN_COUNT})::int AS bin,
-      COUNT(*)::int                                                          AS count
+      width_bucket(log(value), ${logMin}, ${logMax}, ${BIN_COUNT})::int AS bin,
+      COUNT(*)::int                                                     AS count
     FROM p
     GROUP BY 1
     ORDER BY 1
   `;
-  const [meta] = await sql<Array<{ n: number; price: string; median: string | null }>>`
+  const [meta] = await sql<Array<{ n: number; price: string; median: string | null; mean: string | null }>>`
     SELECT
-      COUNT(*) FILTER (WHERE fmv_usd IS NOT NULL)::int                       AS n,
-      MAX(price_usd)::text                                                   AS price,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY fmv_usd)::text             AS median
+      COUNT(*) FILTER (WHERE fmv_usd IS NOT NULL)::int                                AS n,
+      MAX(price_usd)::text                                                            AS price,
+      (percentile_cont(0.5) WITHIN GROUP (ORDER BY fmv_usd) * ${rate})::text          AS median,
+      (AVG(fmv_usd) FILTER (WHERE fmv_usd IS NOT NULL) * ${rate})::text               AS mean
     FROM pulls_enriched WHERE tier = ${tier}
   `;
   const outliers = await sql<Array<{ slug: string | null; title: string | null; fmv: string; username: string | null; wallet: string }>>`
     SELECT
       p.card_slug AS slug,
       c.title     AS title,
-      p.fmv_usd::text AS fmv,
+      (p.fmv_usd * ${rate})::text AS fmv,
       p.username,
       p.wallet
     FROM pulls_enriched p
@@ -379,12 +470,12 @@ export async function getTierFMVDistribution(tier: string): Promise<FmvDistribut
     LIMIT 1
   `;
 
-  const binStep = (BIN_MAX - BIN_MIN) / BIN_COUNT;
+  const binStep = (logMax - logMin) / BIN_COUNT;
   const points: FmvBin[] = [];
   for (let i = 1; i <= BIN_COUNT; i++) {
     const found = bins.find(b => b.bin === i);
     points.push({
-      log10Mid: BIN_MIN + (i - 0.5) * binStep,
+      log10Mid: logMin + (i - 0.5) * binStep,
       count: found?.count ?? 0,
     });
   }
@@ -393,6 +484,9 @@ export async function getTierFMVDistribution(tier: string): Promise<FmvDistribut
     n: meta?.n ?? 0,
     price: Number(meta?.price ?? 0),
     median: meta?.median ? Number(meta.median) : null,
+    mean: meta?.mean ? Number(meta.mean) : null,
+    logMin,
+    logMax,
     outliers: outliers.map(o => ({
       slug: o.slug,
       title: o.title,
@@ -413,15 +507,18 @@ export interface SoldBackPoint {
   rate: number;       // 0..1
 }
 
-export async function getSoldBackRateOverTime(tier: string, weeks = 12): Promise<SoldBackPoint[]> {
+// Daily sold-back rate from the tier's first pull onward. No lookback window —
+// the chart starts at the first pack rip and extends to today. Sparse early
+// days (only one or two pulls) can produce 0%/100% spikes; the chart smooths
+// visually by interpolating between days, but the raw points are unsmoothed.
+export async function getSoldBackRateOverTime(tier: string): Promise<SoldBackPoint[]> {
   return sql<SoldBackPoint[]>`
     SELECT
-      to_char(date_trunc('week', pulled_at), 'YYYY-MM-DD') AS bucket,
+      to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD') AS bucket,
       (COUNT(*) FILTER (WHERE status = 'sold_back')::float
-        / NULLIF(COUNT(*), 0))                              AS rate
+        / NULLIF(COUNT(*), 0))                             AS rate
     FROM pulls_enriched
     WHERE tier = ${tier}
-      AND pulled_at >= now() - (${weeks} * 7 || ' days')::interval
     GROUP BY 1
     ORDER BY 1
   `;
@@ -577,10 +674,16 @@ async function getOutliers({
 /* ─────────────────────────────────────────────────────────────
  * Wallets — leaderboard, KPIs, detail.
  *
- *   Net P&L = realised payouts (sold-back × per-tier buyback × FMV
- *             via pulls_enriched view) − spend on packs.
- *   Spend   = SUM(price_usd).
+ *   Net P&L = realized on-chain USDm cashflow (from `wallet_pnl` view)
+ *             + held cards marked to current FMV × per-tier buyback rate.
+ *   Spend   = on-chain USDm OUT to mnstr operator (wallet_pnl.realized_out),
+ *             which matches SUM(pulls.price_usd) per audit.
  *   Pulls   = COUNT(*).
+ *
+ * Pre-2026-05-26: net was derived from pulls_enriched.payout_usd, which the
+ * view recomputed live as fmv_usd × tier_rate. That drifted on every MnStr
+ * FMV re-quote, even for cards that had already been sold back. Switched to
+ * the on-chain ground truth via sql/010_usdm_flows + sql/011_wallet_pnl.
  *
  * Sort options: 'pnl' | 'spend' | 'pulls'.
  * ───────────────────────────────────────────────────────────── */
@@ -592,9 +695,11 @@ export interface WalletRow {
   handle: string | null;       // username when known, else null (caller renders fallback)
   user_slug: string | null;
   pulls: number;
-  spend: number;
-  payout: number;              // realised payout total
-  net: number;
+  spend: number;               // on-chain USDm sent to mnstr operator
+  payout: number;              // on-chain USDm received from mnstr operator
+  net: number;                 // realized_net + held_fmv (held inventory at raw FMV)
+  realizedNet: number;         // on-chain realized cashflow only
+  heldPaper: number;           // held-card buyback value (current_fmv × tier_rate)
   spark: number[];             // 12-bucket spark (weekly pulls or weekly net depending on context)
   rank: number;                // rank in current sort order
 }
@@ -608,10 +713,11 @@ export interface LeaderboardKpis {
 /* ── helpers ──────────────────────────────────────────────── */
 
 // ORDER BY against the underlying numeric expressions, not the text-cast
-// aliases — otherwise PG sorts lexically and "-100" > "+92".
+// aliases — otherwise PG sorts lexically and "-100" > "+92". `pnl` uses the
+// on-chain-derived total (realized + held paper) from wallet_pnl view.
 const ORDER_EXPR: Record<WalletSort, string> = {
-  pnl:   'COALESCE(SUM(payout_usd) FILTER (WHERE status = \'sold_back\'), 0) - SUM(price_usd)',
-  spend: 'SUM(price_usd)',
+  pnl:   'COALESCE(wp.total_net, 0)',
+  spend: 'COALESCE(wp.realized_out, SUM(p.price_usd))',
   pulls: 'COUNT(*)',
 };
 
@@ -639,8 +745,8 @@ export async function getLeaderboard(
 
   const ql = q?.trim().toLowerCase();
   const filterSql = ql
-    ? sql`HAVING LOWER(COALESCE(MAX(username), '')) LIKE ${'%' + ql + '%'}
-           OR LOWER(wallet) LIKE ${ql + '%'}`
+    ? sql`HAVING LOWER(COALESCE(MAX(p.username), '')) LIKE ${'%' + ql + '%'}
+           OR LOWER(p.wallet) LIKE ${ql + '%'}`
     : sql``;
 
   const rows = await sql<Array<{
@@ -650,19 +756,23 @@ export async function getLeaderboard(
     pulls: number;
     spend: string;
     payout: string;
+    realized_net: string;
+    held_paper: string;
     net: string;
   }>>`
     SELECT
-      wallet,
-      MAX(username)  AS handle,
-      MAX(user_slug) AS user_slug,
-      COUNT(*)::int                                                                     AS pulls,
-      COALESCE(SUM(price_usd), 0)::text                                                 AS spend,
-      COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text            AS payout,
-      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)
-        - COALESCE(SUM(price_usd), 0))::text                                            AS net
-    FROM pulls_enriched
-    GROUP BY wallet
+      p.wallet                              AS wallet,
+      MAX(p.username)                       AS handle,
+      MAX(p.user_slug)                      AS user_slug,
+      COUNT(*)::int                         AS pulls,
+      COALESCE(wp.realized_out, SUM(p.price_usd))::text  AS spend,
+      COALESCE(wp.realized_in, 0)::text                  AS payout,
+      COALESCE(wp.realized_net, -SUM(p.price_usd))::text AS realized_net,
+      COALESCE(wp.held_paper, 0)::text                   AS held_paper,
+      COALESCE(wp.total_net, -SUM(p.price_usd))::text    AS net
+    FROM pulls_enriched p
+    LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+    GROUP BY p.wallet, wp.realized_in, wp.realized_out, wp.realized_net, wp.held_paper, wp.total_net
     ${filterSql}
     ${orderSql}
     LIMIT ${pageSize}
@@ -671,9 +781,9 @@ export async function getLeaderboard(
 
   const [count] = await sql<Array<{ total: number }>>`
     SELECT COUNT(*)::int AS total FROM (
-      SELECT wallet
-      FROM pulls_enriched
-      GROUP BY wallet
+      SELECT p.wallet
+      FROM pulls_enriched p
+      GROUP BY p.wallet
       ${filterSql}
     ) t
   `;
@@ -693,6 +803,8 @@ export async function getLeaderboard(
       pulls: r.pulls,
       spend: Number(r.spend),
       payout: Number(r.payout),
+      realizedNet: Number(r.realized_net),
+      heldPaper: Number(r.held_paper),
       net: Number(r.net),
       spark: sparkByWallet.get(r.wallet) ?? [],
       rank: offset + i + 1,
@@ -712,18 +824,43 @@ async function sparkForWallets(
   wallets: string[],
   sort: WalletSort,
 ): Promise<Map<string, number[]>> {
-  const rows = await sql<Array<{ wallet: string; day: string; pulls: number; spend: string; net: string }>>`
-    SELECT
-      wallet,
-      to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD')                                       AS day,
-      COUNT(*)::int                                                                              AS pulls,
-      SUM(price_usd)::text                                                                       AS spend,
-      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::text AS net
-    FROM pulls_enriched
-    WHERE wallet IN ${sql(wallets)}
-    GROUP BY wallet, day
-    ORDER BY wallet, day
-  `;
+  // 'pulls' sparks come from pulls (one count per pull). 'spend' and 'pnl'
+  // come from usdm_flows so the cumulative line tracks real on-chain USDm.
+  // Day buckets use pulled_at for 'pulls' (one bar per day a pull happened)
+  // and ts (transfer timestamp) for 'spend' / 'pnl' (one bar per cash-flow day).
+  const rows = sort === 'pulls'
+    ? await sql<Array<{ wallet: string; day: string; delta: number }>>`
+        SELECT
+          wallet,
+          to_char(date_trunc('day', pulled_at), 'YYYY-MM-DD') AS day,
+          COUNT(*)::int                                       AS delta
+        FROM pulls_enriched
+        WHERE wallet IN ${sql(wallets)}
+        GROUP BY wallet, day
+        ORDER BY wallet, day
+      `
+    : sort === 'spend'
+    ? await sql<Array<{ wallet: string; day: string; delta: number }>>`
+        SELECT
+          wallet,
+          to_char(date_trunc('day', ts), 'YYYY-MM-DD')                            AS day,
+          COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0)::float    AS delta
+        FROM usdm_flows
+        WHERE wallet IN ${sql(wallets)}
+        GROUP BY wallet, day
+        ORDER BY wallet, day
+      `
+    : await sql<Array<{ wallet: string; day: string; delta: number }>>`
+        SELECT
+          wallet,
+          to_char(date_trunc('day', ts), 'YYYY-MM-DD')                                                          AS day,
+          (COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'in'),  0)
+            - COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0))::float                             AS delta
+        FROM usdm_flows
+        WHERE wallet IN ${sql(wallets)}
+        GROUP BY wallet, day
+        ORDER BY wallet, day
+      `;
   const map = new Map<string, number[]>();
   for (const w of wallets) map.set(w, []);
   let runningSum = 0;
@@ -733,17 +870,16 @@ async function sparkForWallets(
       runningSum = 0;
       runningWallet = r.wallet;
     }
-    const delta =
-      sort === 'spend' ? Number(r.spend)
-      : sort === 'pulls' ? r.pulls
-      : Number(r.net);
-    runningSum += delta;
+    runningSum += Number(r.delta);
     map.get(r.wallet)!.push(runningSum);
   }
   return map;
 }
 
 export async function getLeaderboardKpis(): Promise<LeaderboardKpis> {
+  // Spend comes from on-chain USDm OUT (wallet_pnl.realized_out, matches DB
+  // sum-of-price_usd per audit). Net comes from wallet_pnl.total_net so the
+  // winners % uses the same definition as the leaderboard and detail pages.
   const [r] = await sql<Array<{
     total: number;
     top1pct_share: string | null;
@@ -751,11 +887,12 @@ export async function getLeaderboardKpis(): Promise<LeaderboardKpis> {
   }>>`
     WITH per_wallet AS (
       SELECT
-        wallet,
-        SUM(price_usd) AS spend,
-        COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd) AS net
-      FROM pulls_enriched
-      GROUP BY wallet
+        p.wallet,
+        COALESCE(wp.realized_out, SUM(p.price_usd))           AS spend,
+        COALESCE(wp.total_net,   -SUM(p.price_usd))           AS net
+      FROM pulls_enriched p
+      LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+      GROUP BY p.wallet, wp.realized_out, wp.total_net
     ),
     ranked AS (
       SELECT *, ntile(100) OVER (ORDER BY spend DESC) AS pct
@@ -794,11 +931,17 @@ export interface LadderRow {
  * magnitude as a ranked bar. */
 export async function getLadder(sort: WalletSort, k = 500): Promise<LadderRow[]> {
   if (sort === 'spend') {
+    // Spend = USDm OUT to operator. Falls back to SUM(price_usd) for wallets
+    // not yet captured by the on-chain backfill.
     return sql<LadderRow[]>`
-      SELECT wallet, MAX(username) AS handle, SUM(price_usd)::float AS value
-      FROM pulls_enriched
-      GROUP BY wallet
-      ORDER BY value DESC, wallet ASC
+      SELECT
+        p.wallet,
+        MAX(p.username)                                                      AS handle,
+        COALESCE(wp.realized_out, SUM(p.price_usd))::float                   AS value
+      FROM pulls_enriched p
+      LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+      GROUP BY p.wallet, wp.realized_out
+      ORDER BY value DESC, p.wallet ASC
       LIMIT ${k}
     `;
   }
@@ -811,15 +954,16 @@ export async function getLadder(sort: WalletSort, k = 500): Promise<LadderRow[]>
       LIMIT ${k}
     `;
   }
-  // pnl: top-K wallets by net P&L (winners first, descending).
+  // pnl: top-K wallets by total_net (realized + held paper).
   return sql<LadderRow[]>`
     SELECT
-      wallet,
-      MAX(username) AS handle,
-      (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::float AS value
-    FROM pulls_enriched
-    GROUP BY wallet
-    ORDER BY value DESC, wallet ASC
+      p.wallet,
+      MAX(p.username)                                          AS handle,
+      COALESCE(wp.total_net, -SUM(p.price_usd))::float         AS value
+    FROM pulls_enriched p
+    LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+    GROUP BY p.wallet, wp.total_net
+    ORDER BY value DESC, p.wallet ASC
     LIMIT ${k}
   `;
 }
@@ -835,17 +979,19 @@ export interface WalletDetail {
   wallet: string;
   handle: string | null;
   user_slug: string | null;
-  rank: number;
+  rank: number;                  // P&L rank in the global leaderboard (1 = top)
   pulls: number;
-  spend: number;
-  payout: number;
-  net: number;
-  vaultFmv: number;
+  spend: number;                 // on-chain USDm OUT to mnstr operator
+  payout: number;                // on-chain USDm IN from mnstr operator
+  realizedNet: number;           // payout - spend (immutable once on-chain)
+  heldPaper: number;             // held cards at buyback rate (current_fmv × tier_rate)
+  net: number;                   // realizedNet + held FMV — matches leaderboard total_net
+  vaultFmv: number;              // raw FMV of held cards (no buyback adjustment) — for display
   bigHits: number;
   tierMix: Array<{ tier: string; pulls: number }>;
-  collection: HitRow[];     // top fmv pulls (up to 9)
+  collection: HitRow[];          // top fmv pulls (up to 9)
   collectionTotal: number;
-  recent: HitRow[];         // newest pulls first (up to 12)
+  recent: HitRow[];              // newest pulls first (up to 12)
 }
 
 /* Paginated recent-pulls for a single wallet — used by getWalletDetail for
@@ -883,34 +1029,54 @@ export async function getWalletRecentPulls(
 
 export async function getWalletDetail(wallet: string): Promise<WalletDetail | null> {
   const addr = wallet.toLowerCase();
+  // Aggregations split: pulls-side (pulls, vault_fmv, big_hits) come from
+  // pulls_enriched. Realized cashflow (spend, payout, realized_net) +
+  // held_paper come from the on-chain-backed wallet_pnl view.
   const [agg] = await sql<Array<{
     handle: string | null;
     user_slug: string | null;
     pulls: number;
-    spend: string;
-    payout: string;
     vault_fmv: string;
     big_hits: number;
+    spend: string;
+    payout: string;
+    realized_net: string;
+    held_paper: string;
+    total_net: string;
+    mp_held_fmv: string;
   }>>`
     SELECT
-      MAX(username)                                                                       AS handle,
-      MAX(user_slug)                                                                      AS user_slug,
-      COUNT(*)::int                                                                       AS pulls,
-      COALESCE(SUM(price_usd), 0)::text                                                   AS spend,
-      COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0)::text              AS payout,
-      COALESCE(SUM(fmv_usd) FILTER (WHERE status = 'holding'), 0)::text                   AS vault_fmv,
-      COUNT(*) FILTER (WHERE fmv_usd >= 1000)::int                                        AS big_hits
-    FROM pulls_enriched
-    WHERE wallet = ${addr}
+      MAX(p.username)                                                          AS handle,
+      MAX(p.user_slug)                                                         AS user_slug,
+      COUNT(*)::int                                                            AS pulls,
+      -- Held FMV = pulled cards still holding + marketplace-bought slabs the
+      -- wallet still owns (mp_held_fmv from wallet_pnl).
+      (COALESCE(SUM(p.fmv_usd) FILTER (WHERE p.status = 'holding'), 0)
+        + COALESCE(MAX(wp.mp_held_fmv), 0))::text                              AS vault_fmv,
+      COUNT(*) FILTER (WHERE p.fmv_usd >= 1000)::int                           AS big_hits,
+      COALESCE(MAX(wp.realized_out), SUM(p.price_usd))::text                   AS spend,
+      COALESCE(MAX(wp.realized_in), 0)::text                                   AS payout,
+      COALESCE(MAX(wp.realized_net), -SUM(p.price_usd))::text                  AS realized_net,
+      COALESCE(MAX(wp.held_paper), 0)::text                                    AS held_paper,
+      COALESCE(MAX(wp.total_net), -SUM(p.price_usd))::text                     AS total_net,
+      COALESCE(MAX(wp.mp_held_fmv), 0)::text                                   AS mp_held_fmv
+    FROM pulls_enriched p
+    LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+    WHERE p.wallet = ${addr}
   `;
   if (!agg || agg.pulls === 0) return null;
 
-  // Rank by spend among all wallets
+  // P&L rank — matches the leaderboard's default sort (total_net DESC).
+  // Restrict to wallets with at least one pull so treasury/mnstr-internal
+  // addresses (which have flows but no pulls) don't pollute the ranking.
   const [rankRow] = await sql<Array<{ rank: number }>>`
     SELECT rank FROM (
-      SELECT wallet, RANK() OVER (ORDER BY SUM(price_usd) DESC) AS rank
-      FROM pulls_enriched
-      GROUP BY wallet
+      SELECT
+        p.wallet,
+        RANK() OVER (ORDER BY COALESCE(wp.total_net, -SUM(p.price_usd)) DESC) AS rank
+      FROM pulls_enriched p
+      LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+      GROUP BY p.wallet, wp.total_net
     ) t WHERE wallet = ${addr}
   `;
   const tierMix = await sql<Array<{ tier: string; pulls: number }>>`
@@ -940,17 +1106,17 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
   `;
   const recent = await getWalletRecentPulls(addr, 0, 12);
 
-  const spend = Number(agg.spend);
-  const payout = Number(agg.payout);
   return {
     wallet: addr,
     handle: agg.handle,
     user_slug: agg.user_slug,
     rank: rankRow?.rank ?? 0,
     pulls: agg.pulls,
-    spend,
-    payout,
-    net: payout - spend,
+    spend: Number(agg.spend),
+    payout: Number(agg.payout),
+    realizedNet: Number(agg.realized_net),
+    heldPaper: Number(agg.held_paper),
+    net: Number(agg.total_net),
     vaultFmv: Number(agg.vault_fmv),
     bigHits: agg.big_hits,
     tierMix,
@@ -1175,7 +1341,8 @@ export interface CardDetail {
   list_price_usd: number | null;
 
   pulls_total: number;
-  last_fmv: number | null;
+  last_fmv: number | null;          // current vault FMV (latest appraisal across instances)
+  fmv_at_last_pull: number | null;  // frozen fmv_at_pull_usd of the most recent pull
   in_vault: boolean;       // any pull still 'holding' → true
 
   history: CardHistoryEntry[];
@@ -1269,10 +1436,17 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
   `;
   if (!card) return null;
 
-  const [agg] = await sql<Array<{ pulls: number; last_fmv: string | null; held: number }>>`
+  const [agg] = await sql<Array<{ pulls: number; last_fmv: string | null; fmv_at_last_pull: string | null; held: number }>>`
     SELECT
       COUNT(*)::int                                  AS pulls,
       MAX(fmv_usd)::text                             AS last_fmv,
+      (
+        SELECT fmv_at_pull_usd::text
+        FROM pulls_enriched
+        WHERE card_slug = ${slug} AND fmv_at_pull_usd IS NOT NULL
+        ORDER BY pulled_at DESC
+        LIMIT 1
+      )                                              AS fmv_at_last_pull,
       COUNT(*) FILTER (WHERE status = 'holding')::int AS held
     FROM pulls_enriched WHERE card_slug = ${slug}
   `;
@@ -1308,6 +1482,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
     list_price_usd: card.list_price_usd ? Number(card.list_price_usd) : null,
     pulls_total: agg?.pulls ?? 0,
     last_fmv: agg?.last_fmv ? Number(agg.last_fmv) : null,
+    fmv_at_last_pull: agg?.fmv_at_last_pull ? Number(agg.fmv_at_last_pull) : null,
     in_vault: (agg?.held ?? 0) > 0,
     history,
     comparables: comparables.map(c => ({
@@ -1361,6 +1536,7 @@ export type CardActivity =
       fmv_usd: number | null;
       payout_usd: number | null;
       status: string;
+      payout_tx: string | null;   // on-chain USDm transfer tx that delivered the payout
     }
   | {
       kind: 'sale';
@@ -1414,6 +1590,7 @@ export async function getCardActivity(
     seller_handle: string | null;
     sale_price_usd: string | null;
     sale_card_fmv: string | null;
+    payout_tx: string | null;
   }>>`
     SELECT * FROM (
       SELECT
@@ -1434,7 +1611,8 @@ export async function getCardActivity(
         NULL::text                         AS seller_wallet,
         NULL::text                         AS seller_handle,
         NULL::text                         AS sale_price_usd,
-        NULL::text                         AS sale_card_fmv
+        NULL::text                         AS sale_card_fmv,
+        p.payout_tx_hash                   AS payout_tx
       FROM pulls_enriched p
       WHERE p.card_slug = ${slug}
 
@@ -1458,7 +1636,8 @@ export async function getCardActivity(
         seller.wallet                      AS seller_wallet,
         seller.username                    AS seller_handle,
         ms.price_usd::text                 AS sale_price_usd,
-        seller.fmv_usd::text               AS sale_card_fmv
+        seller.fmv_usd::text               AS sale_card_fmv,
+        NULL::text                         AS payout_tx
       FROM marketplace_sales ms
       JOIN cards c ON c.serial_number = ms.serial_number
       LEFT JOIN LATERAL (
@@ -1489,6 +1668,7 @@ export async function getCardActivity(
         fmv_usd: r.fmv_usd ? Number(r.fmv_usd) : null,
         payout_usd: r.payout_usd ? Number(r.payout_usd) : null,
         status: r.status ?? 'holding',
+        payout_tx: r.payout_tx,
       };
     }
     return {
@@ -1759,8 +1939,8 @@ export interface MarketplaceKpis {
   buyers: number;
   volumeUsd: number;
   avgUsd: number;
-  sales24h: number;
-  volume24hUsd: number;
+  sales7d: number;
+  volume7dUsd: number;
 }
 
 export async function getMarketplaceKpis(): Promise<MarketplaceKpis> {
@@ -1768,15 +1948,15 @@ export async function getMarketplaceKpis(): Promise<MarketplaceKpis> {
     sales: number;
     buyers: number;
     volume: string;
-    sales_24h: number;
-    volume_24h: string;
+    sales_7d: number;
+    volume_7d: string;
   }>>`
     SELECT
       COUNT(*)::int                                                                         AS sales,
       COUNT(DISTINCT buyer)::int                                                            AS buyers,
       COALESCE(SUM(price_usd), 0)::text                                                     AS volume,
-      COUNT(*) FILTER (WHERE bought_at >= now() - interval '24 hours')::int                 AS sales_24h,
-      COALESCE(SUM(price_usd) FILTER (WHERE bought_at >= now() - interval '24 hours'), 0)::text AS volume_24h
+      COUNT(*) FILTER (WHERE bought_at >= now() - interval '7 days')::int                   AS sales_7d,
+      COALESCE(SUM(price_usd) FILTER (WHERE bought_at >= now() - interval '7 days'), 0)::text AS volume_7d
     FROM marketplace_sales
   `;
   const sales = r?.sales ?? 0;
@@ -1786,8 +1966,8 @@ export async function getMarketplaceKpis(): Promise<MarketplaceKpis> {
     buyers: r?.buyers ?? 0,
     volumeUsd,
     avgUsd: sales > 0 ? volumeUsd / sales : 0,
-    sales24h: r?.sales_24h ?? 0,
-    volume24hUsd: Number(r?.volume_24h ?? 0),
+    sales7d: r?.sales_7d ?? 0,
+    volume7dUsd: Number(r?.volume_7d ?? 0),
   };
 }
 

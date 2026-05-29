@@ -41,7 +41,13 @@ export async function insertPullLogs(c: Contract, logs: PlayAssignedLog[]): Prom
     )}
     ON CONFLICT (request_id) DO NOTHING
   `;
-  return result.count ?? 0;
+  const inserted = result.count ?? 0;
+  // SSE fan-out: tell every connected dashboard the pull feed changed.
+  // Listener lives in app/api/live/stream. Cross-process via Postgres pubsub.
+  if (inserted > 0) {
+    sql.notify('pulls_tick', '').catch(() => {});
+  }
+  return inserted;
 }
 
 async function getCheckpoint(c: Contract): Promise<number> {
