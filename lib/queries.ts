@@ -1623,7 +1623,7 @@ export async function getCardActivity(
         ms.bought_at::text                 AS ts,
         ms.tx_hash || ':' || ms.log_index  AS event_id,
         NULL                               AS request_id,
-        seller.tier                        AS tier,
+        card_meta.tier                     AS tier,
         NULL                               AS wallet,
         NULL                               AS username,
         NULL                               AS price_usd,
@@ -1633,20 +1633,27 @@ export async function getCardActivity(
         ms.tx_hash                         AS tx_hash,
         ms.log_index                       AS log_index,
         ms.buyer                           AS buyer,
-        seller.wallet                      AS seller_wallet,
-        seller.username                    AS seller_handle,
+        -- Marketplace is custodial: the protocol sells from its own vault, so
+        -- there is no real player-seller. We used to infer one as the most
+        -- recent prior puller, which mislabeled the last puller of a pooled
+        -- slug as the "seller" of every later sale of that serial. Emit NULL →
+        -- the UI renders "MnStr vault".
+        NULL::text                         AS seller_wallet,
+        NULL::text                         AS seller_handle,
         ms.price_usd::text                 AS sale_price_usd,
-        seller.fmv_usd::text               AS sale_card_fmv,
+        card_meta.fmv_usd::text            AS sale_card_fmv,
         NULL::text                         AS payout_tx
       FROM marketplace_sales ms
       JOIN cards c ON c.serial_number = ms.serial_number
+      -- Card-level attributes (tier + current FMV) for the premium calc; any
+      -- pull of this slug carries them. This is NOT a seller.
       LEFT JOIN LATERAL (
-        SELECT p.wallet, p.username, p.tier, p.fmv_usd
+        SELECT p.tier, p.fmv_usd
         FROM pulls p
-        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+        WHERE p.card_slug = c.slug
         ORDER BY p.pulled_at DESC
         LIMIT 1
-      ) seller ON TRUE
+      ) card_meta ON TRUE
       WHERE c.slug = ${slug}
     ) ev
     ORDER BY ts DESC, event_id DESC
@@ -1688,9 +1695,10 @@ export async function getCardActivity(
 }
 
 /* ─────────────────────────────────────────────────────────────
- * Wallet activity — pulls by this wallet + marketplace trades
- * where the wallet was buyer or seller. Powers "Recent history"
- * on /wallets/[addr].
+ * Wallet activity — pulls by this wallet + marketplace slabs it bought.
+ * (No sell side: the marketplace is custodial, the protocol sells from its
+ * own vault, so a player is never a marketplace seller.) Powers "Recent
+ * history" on /wallets/[addr].
  * ───────────────────────────────────────────────────────────── */
 
 export type WalletActivity =
@@ -1734,11 +1742,8 @@ export async function getWalletActivityCount(wallet: string): Promise<number> {
     SELECT
       (SELECT COUNT(*)::int FROM pulls WHERE wallet = ${addr})
       + (SELECT COUNT(*)::int FROM marketplace_sales WHERE buyer = ${addr})
-      + (SELECT COUNT(*)::int FROM marketplace_sales ms
-          JOIN cards c ON c.serial_number = ms.serial_number
-          WHERE (SELECT p.wallet FROM pulls p
-                  WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
-                  ORDER BY p.pulled_at DESC LIMIT 1) = ${addr})
+      -- No marketplace sell-side for players (custodial market sells from the
+      -- protocol vault), so only pulls + buys count toward wallet activity.
     AS n
   `;
   return r?.n ?? 0;
@@ -1805,17 +1810,19 @@ export async function getWalletActivity(
         ms.bought_at::text                 AS ts,
         ms.tx_hash || ':' || ms.log_index  AS event_id,
         NULL                               AS request_id,
-        seller.tier                        AS tier,
+        card_meta.tier                     AS tier,
         NULL                               AS price_usd,
         NULL                               AS fmv_usd,
         NULL                               AS payout_usd,
         NULL                               AS status,
         ms.tx_hash                         AS tx_hash,
         ms.log_index                       AS log_index,
-        seller.wallet                      AS counterparty_wallet,
-        seller.username                    AS counterparty_handle,
+        -- Custodial marketplace: the buyer bought from the protocol's vault,
+        -- not from another player. Emit NULL → the UI renders "MnStr vault".
+        NULL::text                         AS counterparty_wallet,
+        NULL::text                         AS counterparty_handle,
         ms.price_usd::text                 AS sale_price_usd,
-        seller.fmv_usd::text               AS sale_card_fmv,
+        card_meta.fmv_usd::text            AS sale_card_fmv,
         c.slug                             AS card_slug,
         c.title                            AS card_title,
         c.card_set                         AS card_set,
@@ -1823,46 +1830,19 @@ export async function getWalletActivity(
         c.grading                          AS card_grading
       FROM marketplace_sales ms
       LEFT JOIN cards c ON c.serial_number = ms.serial_number
+      -- Card-level attrs (tier + current FMV) for the premium calc. NOT a seller.
       LEFT JOIN LATERAL (
-        SELECT p.wallet, p.username, p.tier, p.fmv_usd
+        SELECT p.tier, p.fmv_usd
         FROM pulls p
-        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
+        WHERE p.card_slug = c.slug
         ORDER BY p.pulled_at DESC LIMIT 1
-      ) seller ON TRUE
+      ) card_meta ON TRUE
       WHERE ms.buyer = ${addr}
 
-      UNION ALL
-
-      SELECT
-        'sale_sell'::text                  AS kind,
-        ms.bought_at::text                 AS ts,
-        ms.tx_hash || ':' || ms.log_index  AS event_id,
-        NULL                               AS request_id,
-        seller.tier                        AS tier,
-        NULL                               AS price_usd,
-        NULL                               AS fmv_usd,
-        NULL                               AS payout_usd,
-        NULL                               AS status,
-        ms.tx_hash                         AS tx_hash,
-        ms.log_index                       AS log_index,
-        ms.buyer                           AS counterparty_wallet,
-        NULL                               AS counterparty_handle,
-        ms.price_usd::text                 AS sale_price_usd,
-        seller.fmv_usd::text               AS sale_card_fmv,
-        c.slug                             AS card_slug,
-        c.title                            AS card_title,
-        c.card_set                         AS card_set,
-        c.image_front                      AS card_image_front,
-        c.grading                          AS card_grading
-      FROM marketplace_sales ms
-      LEFT JOIN cards c ON c.serial_number = ms.serial_number
-      LEFT JOIN LATERAL (
-        SELECT p.wallet, p.username, p.tier, p.fmv_usd
-        FROM pulls p
-        WHERE p.card_slug = c.slug AND p.pulled_at < ms.bought_at
-        ORDER BY p.pulled_at DESC LIMIT 1
-      ) seller ON TRUE
-      WHERE seller.wallet = ${addr}
+      -- NOTE: no 'sale_sell' branch. The marketplace is custodial (the protocol
+      -- sells its own vault inventory), so a player is never a marketplace
+      -- seller. We used to synthesize "sold to X" rows for the inferred prior
+      -- puller, which fabricated sells that never happened.
     ) ev
     ORDER BY ts DESC, event_id DESC
     OFFSET ${offset}
@@ -2003,22 +1983,25 @@ export async function getMarketplaceSales(offset: number, limit: number): Promis
       c.card_set                               AS card_set,
       c.image_front                            AS card_image_front,
       c.grading                                AS card_grading,
-      seller.tier                              AS card_tier,
-      seller.fmv_usd::text                     AS card_fmv,
-      seller.wallet                            AS seller_wallet,
-      seller.username                          AS seller_handle
+      card_meta.tier                           AS card_tier,
+      card_meta.fmv_usd::text                  AS card_fmv,
+      -- Custodial marketplace: no real player-seller (the protocol sells from
+      -- its vault). We used to infer one as the most recent prior puller, which
+      -- mislabeled the last puller of a pooled slug as the seller of every
+      -- later sale. Emit NULL → the UI renders "MnStr vault".
+      NULL::text                               AS seller_wallet,
+      NULL::text                               AS seller_handle
     FROM marketplace_sales ms
     LEFT JOIN cards c ON c.serial_number = ms.serial_number
-    -- Lateral join: pull the most recent pull of this slab BEFORE the sale
-    -- so we can attribute seller wallet, tier, and FMV in a single pass.
+    -- Card-level attributes (tier + current FMV) for the premium calc; any pull
+    -- of this slug carries them. NOT a seller.
     LEFT JOIN LATERAL (
-      SELECT p.tier, p.fmv_usd, p.wallet, p.username
+      SELECT p.tier, p.fmv_usd
       FROM pulls p
       WHERE p.card_slug = c.slug
-        AND p.pulled_at < ms.bought_at
       ORDER BY p.pulled_at DESC
       LIMIT 1
-    ) seller ON TRUE
+    ) card_meta ON TRUE
     ORDER BY ms.bought_at DESC, ms.tx_hash DESC, ms.log_index DESC
     OFFSET ${offset}
     LIMIT ${limit}
