@@ -5,12 +5,14 @@
  * exhausted. Matches the load-more pattern used on Wallet detail / Tiers
  * outliers / Card history pages. */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import MarketplaceSaleRow from './MarketplaceSaleRow';
 import { Mono } from '../primitives';
 import type { MarketplaceSale } from '@/lib/queries';
 
 const PAGE_SIZE = 20;
+// SSE backstop — refetch the head every 5 min in case the stream goes dark.
+const POLL_MS = 5 * 60 * 1000;
 
 export default function MarketplaceLoadMore({
   initialRows,
@@ -47,6 +49,36 @@ export default function MarketplaceLoadMore({
       setLoading(false);
     }
   }
+
+  // Fresh page-1 fetch — used by SSE pushes + the 5-min HTTP backstop to
+  // prepend new sales onto the existing list without disturbing pagination.
+  // Merges by (tx_hash, log_index) so dupes from overlapping fetches collapse.
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshHead() {
+      try {
+        const res = await fetch('/api/marketplace/sales?offset=0', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as { rows: MarketplaceSale[] };
+        if (cancelled) return;
+        setRows(prev => {
+          const seen = new Set(prev.map(r => `${r.tx_hash}:${r.log_index}`));
+          const fresh = data.rows.filter(r => !seen.has(`${r.tx_hash}:${r.log_index}`));
+          return fresh.length === 0 ? prev : [...fresh, ...prev];
+        });
+      } catch {}
+    }
+    const id = window.setInterval(refreshHead, POLL_MS);
+    const es = new EventSource('/api/live/stream');
+    const onMarket = () => refreshHead();
+    es.addEventListener('market', onMarket);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      es.removeEventListener('market', onMarket);
+      es.close();
+    };
+  }, []);
 
   return (
     <>

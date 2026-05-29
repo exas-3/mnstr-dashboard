@@ -28,7 +28,7 @@ export default async function MarketplacePage() {
 
   const volume = abbrUsd(kpis.volumeUsd);
   const avg = abbrUsd(kpis.avgUsd);
-  const volume24h = abbrUsd(kpis.volume24hUsd);
+  const volume7d = abbrUsd(kpis.volume7dUsd);
 
   return (
     <div className="pb-6">
@@ -57,8 +57,8 @@ export default async function MarketplacePage() {
         <KpiTile label="Volume · all-time" value={volume.value} unit={volume.unit} />
         <KpiTile label="Avg price" value={avg.value} unit={avg.unit} />
         <KpiTile label="Distinct buyers" value={kpis.buyers.toLocaleString('en-US')} />
-        <KpiTile label="Sales · 24h" value={kpis.sales24h.toLocaleString('en-US')} />
-        <KpiTile label="Volume · 24h" value={volume24h.value} unit={volume24h.unit} />
+        <KpiTile label="Sales · 7d" value={kpis.sales7d.toLocaleString('en-US')} />
+        <KpiTile label="Volume · 7d" value={volume7d.value} unit={volume7d.unit} />
       </div>
 
       <SectionHead

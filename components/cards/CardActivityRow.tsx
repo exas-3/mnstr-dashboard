@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
 import { premiumFraction, type PremiumMode } from '@/lib/buyback';
+import LocalTime from '../LocalTime';
 import type { CardActivity } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -17,18 +18,6 @@ function usd(n: number, frac = 0): string {
   });
 }
 
-/* UTC-fixed manual date format — Node ICU and Chrome V8 ICU disagree on
- * Intl output, which trips React #418 hydration. */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  const day = d.getUTCDate();
-  const m = MONTHS[d.getUTCMonth()];
-  const y = d.getUTCFullYear();
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const min = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${day} ${m} ${y} · ${h}:${min}`;
-}
 
 export default function CardActivityRow({
   ev,
@@ -50,6 +39,22 @@ export default function CardActivityRow({
         <div className="flex items-baseline justify-between">
           <div className="flex items-baseline gap-2">
             <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.14em' }}>PULL</Mono>
+            {/* Credit-paid pulls (price_usd = 0): no USDm out, the wallet paid
+             * with internal mnstr credit. Flag so net = $0 makes sense. */}
+            {ev.price_usd === 0 && (
+              <Mono
+                style={{
+                  fontSize: 8.5,
+                  color: 'var(--tier-cyan)',
+                  letterSpacing: '0.14em',
+                  padding: '1px 4px',
+                  border: '1px solid color-mix(in oklch, var(--tier-cyan) 35%, transparent)',
+                  background: 'color-mix(in oklch, var(--tier-cyan) 7%, transparent)',
+                }}
+              >
+                CREDIT
+              </Mono>
+            )}
             <Link
               href={`/wallets/${ev.wallet}`}
               style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--fg)' }}
@@ -60,7 +65,7 @@ export default function CardActivityRow({
           <TierTag tier={ev.tier as Tier} />
         </div>
         <Mono style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3, display: 'block' }}>
-          {shortAddr(ev.wallet)} · {fmtDate(ev.ts)}
+          {shortAddr(ev.wallet)} · <LocalTime iso={ev.ts} format="datetime-year" />
         </Mono>
         <div
           className="mt-3 flex items-center justify-between px-2.5 py-2"
@@ -69,9 +74,23 @@ export default function CardActivityRow({
           <div>
             <StatusPill status={ev.status} />
             {ev.payout_usd !== null && ev.status === 'sold_back' && (
-              <Mono style={{ fontSize: 11, color: 'var(--fg)', display: 'block', marginTop: 2 }}>
-                {usd(ev.payout_usd, ev.payout_usd < 100 ? 2 : 0)} payout
-              </Mono>
+              ev.payout_tx ? (
+                <a
+                  href={`https://mega.etherscan.io/tx/${ev.payout_tx}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title="View payout transaction on MegaETH explorer"
+                  style={{ display: 'block', marginTop: 2 }}
+                >
+                  <Mono style={{ fontSize: 11, color: 'var(--accent)' }}>
+                    {usd(ev.payout_usd, ev.payout_usd < 100 ? 2 : 0)} payout ↗
+                  </Mono>
+                </a>
+              ) : (
+                <Mono style={{ fontSize: 11, color: 'var(--fg)', display: 'block', marginTop: 2 }}>
+                  {usd(ev.payout_usd, ev.payout_usd < 100 ? 2 : 0)} payout
+                </Mono>
+              )
             )}
           </div>
           <Mono
@@ -126,15 +145,22 @@ export default function CardActivityRow({
         {ev.tier && <TierTag tier={ev.tier as Tier} />}
       </div>
       <Mono style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3, display: 'block' }}>
-        marketplace · {fmtDate(ev.ts)}
+        marketplace · <LocalTime iso={ev.ts} format="datetime-year" />
       </Mono>
       <div
         className="mt-3 flex items-center justify-between px-2.5 py-2"
         style={{ background: 'var(--bg-3)' }}
       >
-        <Mono style={{ fontSize: 11, color: 'var(--accent)' }}>
-          {usd(ev.sale_price_usd, ev.sale_price_usd < 100 ? 2 : 0)}
-        </Mono>
+        <a
+          href={`https://mega.etherscan.io/tx/${ev.tx_hash}`}
+          target="_blank"
+          rel="noreferrer noopener"
+          title="View sale transaction on MegaETH explorer"
+        >
+          <Mono style={{ fontSize: 11, color: 'var(--accent)' }}>
+            {usd(ev.sale_price_usd, ev.sale_price_usd < 100 ? 2 : 0)} ↗
+          </Mono>
+        </a>
         {premium != null && (
           <Mono style={{ fontSize: 11, color: premiumColor }}>
             {premium >= 0 ? '+' : ''}{(premium * 100).toFixed(1)}% {premiumLabel}

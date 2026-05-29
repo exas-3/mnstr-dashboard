@@ -160,7 +160,7 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
                   padding: '0 6px',
                 }}
               >
-                {card.last_fmv !== null ? usd(card.last_fmv) : '–'}
+                {card.fmv_at_last_pull !== null ? usd(card.fmv_at_last_pull) : '–'}
               </Mono>
             </div>
             {card.serial_number && (
@@ -239,7 +239,7 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
 
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
-          † Comps reflect <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> at last sighting; not market consensus.
+          † Comps reflect <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> at last sighting.
           <br />
           † {card.in_vault
             ? 'Currently held by a player. Status revalues on every poll.'

@@ -1,6 +1,10 @@
+'use client';
+
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
 import { premiumFraction } from '@/lib/buyback';
+import LocalTime from '../LocalTime';
+import { useHoverImagePopover } from '../HoverImagePopover';
 import type { MarketplaceSale } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -15,16 +19,6 @@ function usd(n: number, frac = 0): string {
     maximumFractionDigits: frac,
     minimumFractionDigits: frac,
   });
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  const day = d.getUTCDate();
-  const m = MONTHS[d.getUTCMonth()];
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const min = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${m} ${day} · ${h}:${min}`;
 }
 
 export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceSale; first?: boolean }) {
@@ -44,6 +38,14 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
     premium == null ? 'var(--fg-4)'
     : premium >= 0 ? 'var(--positive)'
     : 'var(--tier-magenta)';
+  // Hover preview — magnified card image follows cursor. Hidden at 2xl+.
+  const { handlers, popover } = useHoverImagePopover({
+    image: img,
+    title,
+    amount: usd(sale.price_usd, sale.price_usd < 100 ? 2 : 0),
+    hot: sale.price_usd >= 1000,
+    alwaysVisible: true,
+  });
 
   const inner = (
     <div
@@ -52,6 +54,7 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
         gridTemplateColumns: '46px 1fr auto',
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
+      {...handlers}
     >
       <div
         style={{
@@ -104,7 +107,7 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
           </Mono>
         )}
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>
-          {fmtDate(sale.bought_at)}
+          <LocalTime iso={sale.bought_at} format="datetime" />
         </Mono>
       </div>
     </div>
@@ -112,21 +115,27 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
 
   if (sale.card_slug) {
     return (
-      <Link href={`/cards/${sale.card_slug}`} className="block">
-        {inner}
-      </Link>
+      <>
+        <Link href={`/cards/${sale.card_slug}`} className="block">
+          {inner}
+        </Link>
+        {popover}
+      </>
     );
   }
   // Orphan slab — link to mnstr.xyz where the slab page lives, so users can
   // still see what was sold even though our DB has no metadata.
   return (
-    <a
-      href={`https://mnstr.xyz/cards/${sale.serial_number}/`}
-      target="_blank"
-      rel="noreferrer"
-      className="block"
-    >
-      {inner}
-    </a>
+    <>
+      <a
+        href={`https://mnstr.xyz/cards/${sale.serial_number}/`}
+        target="_blank"
+        rel="noreferrer"
+        className="block"
+      >
+        {inner}
+      </a>
+      {popover}
+    </>
   );
 }

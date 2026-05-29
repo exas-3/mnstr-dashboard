@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { Mono, type Tier } from '../primitives';
+import { useHoverImagePopover } from '../HoverImagePopover';
 import type { CardListItem } from '@/lib/queries';
 
 const TIER_COLOR: Record<string, string> = {
@@ -15,8 +18,20 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
   const tc = TIER_COLOR[tier];
 
   const img = card.slug ? `/img/${card.slug}` : card.image_front;
+  const fmv = card.fmv ?? 0;
+  const fmvLabel = fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0);
+  // Hover preview — default 2xl:hidden gate (large screens have big enough
+  // tiles to read without a magnifier).
+  const { handlers, popover } = useHoverImagePopover({
+    image: img,
+    title: card.title,
+    amount: card.fmv !== null ? `$${fmvLabel}` : '',
+    hot,
+  });
+
   return (
-    <Link href={`/cards/${card.slug}`} className="block">
+    <>
+    <Link href={`/cards/${card.slug}`} className="block" {...handlers}>
       <div
         className="relative flex flex-col justify-between p-1.5"
         style={{
@@ -82,5 +97,7 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
         </div>
       </div>
     </Link>
+    {popover}
+    </>
   );
 }

@@ -10,17 +10,18 @@ import EmptyState from '@/components/EmptyState';
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: 'Cards · The vault',
+  title: 'Cards · The vault — graded Pokémon TCG & One Piece collectibles',
   description:
-    "Browse every card pulled from MnStr packs, filtered by tier and ranked by FMV or pull count. PSA-graded slabs held in MnStr's vault.",
+    "Browse every graded Pokémon TCG and One Piece collectible card pulled from MnStr packs, filtered by tier and ranked by FMV or pull count. PSA-graded slabs held in MnStr's vault.",
   alternates: { canonical: '/cards' },
 };
 
 const PAGE_SIZE = 24;
 
 const VIEW_CHIPS = [
-  { id: 'top'  as const, label: 'Top hits'    },
-  { id: 'most' as const, label: 'Most pulled' },
+  { id: 'top'    as const, label: 'Top hits'     },
+  { id: 'most'   as const, label: 'Most pulled'  },
+  { id: 'recent' as const, label: 'Latest pulls' },
 ];
 const TIER_CHIPS = [
   { id: 'all'       as const, label: 'All tiers' },
@@ -32,10 +33,8 @@ const TIER_CHIPS = [
 
 type Tier = (typeof TIER_CHIPS)[number]['id'];
 
-// `recent` is still a valid CardView in the data layer, but we don't expose
-// it in the UI anymore. Stray ?view=recent URLs fall back to 'top'.
 function isView(v: unknown): v is CardView {
-  return v === 'top' || v === 'most';
+  return v === 'top' || v === 'most' || v === 'recent';
 }
 function isTier(v: unknown): v is Tier {
   return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
