@@ -7,7 +7,7 @@
  * Hover anywhere over the chart to surface a tooltip with the day's per-
  * tier breakdown + total. A vertical cursor line tracks the nearest day. */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lbl, Mono, tierLabel, type Tier } from './primitives';
 
 interface VelocityPoint {
@@ -25,22 +25,50 @@ const TIERS: Array<{ key: 'starter' | 'premium' | 'ultra' | 'adventure'; label: 
   { key: 'adventure', label: 'Adventure', color: 'var(--tier-cyan)',    gradientId: 'velocity-adventure' },
 ];
 
-/* Bucket label formatter — handles both daily ("YYYY-MM-DD") and hourly
- * ("YYYY-MM-DD HH:00") inputs, fixed UTC parsing so SSR/CSR match. */
+// Pack USD price per tier — sourced from scripts/config.ts GACHA_CONTRACTS.
+// Used to convert raw pull counts into dollar volume so low-count high-price
+// tiers (Adventure $150, Ultra $1250) aren't visually flattened next to the
+// high-count Starter ($50) stream.
+const TIER_PRICE_USD: Record<'starter' | 'premium' | 'ultra' | 'adventure', number> = {
+  starter:   50,
+  premium:   250,
+  ultra:     1250,
+  adventure: 150,
+};
+
+function abbrUsd(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}k`;
+  return `$${Math.round(n).toLocaleString('en-US')}`;
+}
+
+/* Bucket label formatter. SQL emits buckets in UTC ("YYYY-MM-DD" daily or
+ * "YYYY-MM-DD HH:00" hourly), so we parse as UTC first, then format in the
+ * user's local clock once `local` flips true (post-hydration via the
+ * useLocalFormatter hook). SSR + first client render use UTC so HTML matches
+ * byte-for-byte; the swap to local happens on mount. */
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-function fmtBucket(iso: string, granularity: 'day' | 'hour'): string {
+function pad(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
+function fmtBucket(iso: string, granularity: 'day' | 'hour', local: boolean): string {
   if (granularity === 'hour') {
-    // "2026-05-26 14:00"
+    // "2026-05-26 14:00" — parse as UTC, then read local fields when mounted.
     const [datePart, timePart] = iso.split(' ');
-    const [y, m, d] = datePart.split('-').map(Number);
-    const date = new Date(Date.UTC(y, m - 1, d));
-    return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()} · ${timePart} UTC`;
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [hh] = timePart.split(':').map(Number);
+    const date = new Date(Date.UTC(y, mo - 1, d, hh));
+    const m = local ? date.getMonth()  : date.getUTCMonth();
+    const da = local ? date.getDate()  : date.getUTCDate();
+    const h = local ? date.getHours()  : date.getUTCHours();
+    return `${MONTHS[m]} ${da} · ${pad(h)}:00`;
   }
   // "2026-05-26"
-  const [y, m, d] = iso.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  return `${WEEKDAYS[date.getUTCDay()]} · ${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
+  const [y, mo, d] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  const m = local ? date.getMonth() : date.getUTCMonth();
+  const da = local ? date.getDate() : date.getUTCDate();
+  const w = local ? date.getDay()   : date.getUTCDay();
+  return `${WEEKDAYS[w]} · ${MONTHS[m]} ${da}`;
 }
 
 export default function VelocityChart({
@@ -55,12 +83,16 @@ export default function VelocityChart({
   const unit = granularity === 'hour' ? 'h' : 'd';
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  // Mounted flag — SSR + first client render use UTC so HTML matches; post-
+  // mount we re-render with the user's local clock.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   if (data.length === 0) {
     return (
       <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
         <div className="px-3 pt-2.5 pb-1.5">
-          <Lbl>Velocity · {span}{unit}</Lbl>
+          <Lbl>Volume · {span}{unit} · USD</Lbl>
         </div>
         <div className="px-3 py-8 text-center">
           <Mono style={{ fontSize: 10, color: 'var(--fg-4)' }}>NO DATA</Mono>
@@ -72,14 +104,16 @@ export default function VelocityChart({
   const W = 360;
   const H = 120;
 
-  // Compute cumulative stacked y per day, then peak for scale.
+  // Compute cumulative stacked y per day in USD volume (pulls × tier price)
+  // so the visible band height reflects each tier's actual revenue weight,
+  // not raw pull count. Peak is the highest total stack across the window.
   type Stack = { s: number; p: number; u: number; a: number };
   const stacked: Stack[] = data.map(d => {
-    const s = d.starter;
-    const p = d.starter + d.premium;
-    const u = d.starter + d.premium + d.ultra;
-    const a = d.starter + d.premium + d.ultra + d.adventure;
-    return { s, p, u, a };
+    const sV = d.starter   * TIER_PRICE_USD.starter;
+    const pV = d.premium   * TIER_PRICE_USD.premium;
+    const uV = d.ultra     * TIER_PRICE_USD.ultra;
+    const aV = d.adventure * TIER_PRICE_USD.adventure;
+    return { s: sV, p: sV + pV, u: sV + pV + uV, a: sV + pV + uV + aV };
   });
   const peak = Math.max(1, ...stacked.map(s => s.a));
   const dx = data.length > 1 ? W / (data.length - 1) : W;
@@ -121,8 +155,17 @@ export default function VelocityChart({
   }
 
   const hovered = hoverIdx != null ? data[hoverIdx] : null;
-  const hoveredTotal = hovered
-    ? hovered.starter + hovered.premium + hovered.ultra + hovered.adventure
+  // Tooltip values mirror the rendered bands: dollar volume, not raw pulls.
+  const hoveredVolumes = hovered
+    ? {
+        starter:   hovered.starter   * TIER_PRICE_USD.starter,
+        premium:   hovered.premium   * TIER_PRICE_USD.premium,
+        ultra:     hovered.ultra     * TIER_PRICE_USD.ultra,
+        adventure: hovered.adventure * TIER_PRICE_USD.adventure,
+      }
+    : null;
+  const hoveredTotal = hoveredVolumes
+    ? hoveredVolumes.starter + hoveredVolumes.premium + hoveredVolumes.ultra + hoveredVolumes.adventure
     : 0;
   // Tooltip percent-left within the chart, flipped to the left side when the
   // cursor is past 65% so it doesn't clip the right edge.
@@ -210,7 +253,7 @@ export default function VelocityChart({
       </svg>
       <div className="flex justify-between px-3 pt-1 pb-2.5">
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>
-          {fmtBucket(data[0].day, granularity)}
+          {fmtBucket(data[0].day, granularity, mounted)}
         </Mono>
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>now</Mono>
       </div>
@@ -232,16 +275,18 @@ export default function VelocityChart({
           }}
         >
           <Mono style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.1em', display: 'block' }}>
-            {fmtBucket(hovered.day, granularity)}
+            {fmtBucket(hovered.day, granularity, mounted)}
           </Mono>
           <div className="mt-1.5 grid gap-0.5">
             {TIERS.map(t => {
-              const v = hovered[t.key];
+              const pulls = hovered[t.key];
+              const vol = hoveredVolumes ? hoveredVolumes[t.key] : 0;
               return (
                 <div key={t.key} className="flex items-center justify-between gap-3">
                   <Mono style={{ fontSize: 9.5, color: t.color }}>● {tierLabel(t.label)}</Mono>
-                  <Mono style={{ fontSize: 9.5, color: v > 0 ? 'var(--fg)' : 'var(--fg-4)' }}>
-                    {v.toLocaleString('en-US')}
+                  <Mono style={{ fontSize: 9.5, color: vol > 0 ? 'var(--fg)' : 'var(--fg-4)' }}>
+                    {abbrUsd(vol)}
+                    <span style={{ color: 'var(--fg-4)', marginLeft: 4 }}>· {pulls.toLocaleString('en-US')}</span>
                   </Mono>
                 </div>
               );
@@ -251,9 +296,9 @@ export default function VelocityChart({
             className="mt-1 pt-1 flex items-center justify-between"
             style={{ borderTop: '1px dashed var(--line-soft)' }}
           >
-            <Mono style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.1em' }}>TOTAL</Mono>
+            <Mono style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.1em' }}>VOLUME</Mono>
             <Mono style={{ fontSize: 10, color: 'var(--accent)' }}>
-              {hoveredTotal.toLocaleString('en-US')}
+              {abbrUsd(hoveredTotal)}
             </Mono>
           </div>
         </div>

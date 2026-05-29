@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
+import { useHoverImagePopover } from '../HoverImagePopover';
 import type { TierOutlier } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -14,8 +17,19 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
     : fmv.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
   // Thumb + title link to the card detail. Pullers and tier tag are siblings
-  // — keeps the HTML valid (no nested <a>) and works as a server component.
+  // — keeps the HTML valid (no nested <a>).
   const cardHref = outlier.card_slug ? `/cards/${outlier.card_slug}` : null;
+  const previewImg = outlier.card_slug ? `/img/${outlier.card_slug}` : outlier.card_image_front;
+
+  // Hover preview — small-thumb rows benefit from a magnifier at any screen
+  // size, so disable the default 2xl gate via alwaysVisible.
+  const { handlers, popover } = useHoverImagePopover({
+    image: previewImg,
+    title: outlier.card_title,
+    amount: `$${fmvLabel}`,
+    hot,
+    alwaysVisible: true,
+  });
 
   const titleEl = (
     <div
@@ -28,11 +42,12 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
 
   return (
     <div
-      className="grid items-center gap-2.5 px-3 py-2"
+      className="relative grid items-center gap-2.5 px-3 py-2"
       style={{
         gridTemplateColumns: '46px 1fr 64px',
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
+      {...handlers}
     >
       {cardHref ? (
         <Link href={cardHref}>
@@ -98,6 +113,8 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
           </span>
         )}
       </Mono>
+
+      {popover}
     </div>
   );
 }

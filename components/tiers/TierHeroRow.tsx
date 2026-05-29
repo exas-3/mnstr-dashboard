@@ -84,7 +84,7 @@ export default function TierHeroRow({
                   </Mono>
                   <div className="mt-4 grid grid-cols-3 gap-2" style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 10 }}>
                     <Stat label="EV" value={abbrUsd(e.ev)} />
-                    <Stat label="PULLS" value={e.pulls.toLocaleString('en-US')} />
+                    <Stat label="VOLUME" value={abbrUsd(e.price * e.pulls)} />
                     <Stat label="SOLD" value={`${(e.sellbackRate * 100).toFixed(0)}%`} />
                   </div>
                 </Link>

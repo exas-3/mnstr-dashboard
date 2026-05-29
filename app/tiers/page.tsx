@@ -9,7 +9,9 @@ import {
 import { Lbl, Mono, SectionHead } from '@/components/primitives';
 import TierPicker from '@/components/tiers/TierPicker';
 import TierHeroRow from '@/components/tiers/TierHeroRow';
-import ViolinChart from '@/components/tiers/ViolinChart';
+import EvBasisToggle from '@/components/tiers/EvBasisToggle';
+import BuybackRatesTable from '@/components/tiers/BuybackRatesTable';
+import TierFmvBarChart from '@/components/tiers/TierFmvBarChart';
 import SoldBackChart from '@/components/tiers/SoldBackChart';
 import EconGrid from '@/components/tiers/EconGrid';
 import TierOutliersLoadMore from '@/components/tiers/TierOutliersLoadMore';
@@ -49,7 +51,7 @@ function abbrUsd(n: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
-interface Search { tier?: string }
+interface Search { tier?: string; ev?: string }
 
 export default async function TiersPage({
   searchParams,
@@ -58,6 +60,11 @@ export default async function TiersPage({
 }) {
   const params = await searchParams;
   const tier: TierName = isTier(params.tier) ? params.tier : 'Premium';
+  // EV basis: 'buyback' (default) values cards at fmv_at_pull × tier_rate
+  // (what mnstr would actually pay on sellback). 'fmv' uses raw FMV (the
+  // headline value mnstr displays). Buyback is the realizable number, FMV
+  // is the "paper" value if you could exit at displayed price.
+  const basis = params.ev === 'fmv' ? 'fmv' : 'buyback';
   // House edge + EV are paper-based: every pull's hypothetical sell-back at
   // current FMV × the tier's buyback rate, regardless of whether the player
   // has actually sold yet. Realised would punish tiers with high hold rates
@@ -67,15 +74,15 @@ export default async function TiersPage({
 
   const [econ, dist, soldBackTrend, outliers, outliersTotal, econStarter, econPremium, econUltra, econAdventure] =
     await Promise.all([
-      getTierEconomics(tier, mode),
-      getTierFMVDistribution(tier),
-      getSoldBackRateOverTime(tier, 12),
+      getTierEconomics(tier, mode, basis),
+      getTierFMVDistribution(tier, basis),
+      getSoldBackRateOverTime(tier),
       getTierOutliers(tier, 5),
       getTierOutlierCount(tier),
-      getTierEconomics('Starter', mode),
-      getTierEconomics('Premium', mode),
-      getTierEconomics('Ultra', mode),
-      getTierEconomics('Adventure', mode),
+      getTierEconomics('Starter', mode, basis),
+      getTierEconomics('Premium', mode, basis),
+      getTierEconomics('Ultra', mode, basis),
+      getTierEconomics('Adventure', mode, basis),
     ]);
 
   const econs: Record<string, TierEconomics> = {
@@ -87,6 +94,13 @@ export default async function TiersPage({
 
   return (
     <div className="pb-6">
+      {/* Per-tier buyback rate reference. Source of truth lives in sql/006. */}
+      <BuybackRatesTable />
+
+      {/* EV basis toggle — BUYBACK (default) vs FMV. Drives the headline
+       * Player EV numbers in the hero row + mobile diverging bar below. */}
+      <EvBasisToggle basis={basis} tier={tier} />
+
       {/* Desktop: 3-up tier comparison. Mobile/tablet: TierPicker. */}
       <TierHeroRow econs={econs} active={tier} />
       <div className="lg:hidden">
@@ -151,12 +165,16 @@ export default async function TiersPage({
       {/* Violin + Sold-back trend — side-by-side on lg+ */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:px-2">
         <div>
-          <SectionHead tag="DIST" title="Pulled FMV distribution" right="LOG SCALE" />
-          <ViolinChart data={dist} />
+          <SectionHead
+            tag="DIST"
+            title={basis === 'buyback' ? 'Pulled buyback distribution' : 'Pulled FMV distribution'}
+            right="LOG SCALE"
+          />
+          <TierFmvBarChart data={dist} basis={basis} />
         </div>
         <div>
-          <SectionHead tag="TREND" title="Sold-back rate over time" right="12 WK" />
-          <SoldBackChart data={soldBackTrend} weeks={12} />
+          <SectionHead tag="TREND" title="Sold-back rate over time" right="DAILY · ALL" />
+          <SoldBackChart data={soldBackTrend} />
         </div>
       </div>
 
@@ -200,8 +218,6 @@ export default async function TiersPage({
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
           † Distribution uses <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> at time of pull.
-          <br />
-          † Pack economics are paper-mode — every pull&apos;s hypothetical sell-back (FMV × buyback rate) counts as a payout, whether sold yet or not.
         </Mono>
       </div>
     </div>
