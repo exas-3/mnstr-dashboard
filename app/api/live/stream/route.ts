@@ -50,6 +50,13 @@ function getHub(): Hub {
     sql.listen('market_tick', () => emitter.emit('market')),
   ]).then(() => undefined);
   const hub: Hub = { emitter, ready };
+  // If the LISTEN handshake fails (e.g. DB briefly unreachable on the first
+  // request), evict the cached hub so the next request retries instead of
+  // forever awaiting a rejected promise. Also keeps this from surfacing as an
+  // unhandled rejection.
+  ready.catch(() => {
+    if (globalThis.__mnstr_live_hub === hub) globalThis.__mnstr_live_hub = undefined;
+  });
   globalThis.__mnstr_live_hub = hub;
   return hub;
 }

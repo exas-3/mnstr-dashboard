@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
 import type { HitRow, Kpis } from '@/lib/queries';
 
@@ -59,6 +59,11 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
   // "Show more" click. Each poll re-fetches /api/live with this limit so
   // both new arrivals at the top and the expanded tail stay in sync.
   const [feedLimit, setFeedLimit] = useState(initial.feed.length);
+  // Mirror feedLimit into a ref so the poll/SSE effect can read the current
+  // limit without re-subscribing (and tearing down the EventSource) on every
+  // "Show more" click.
+  const feedLimitRef = useRef(feedLimit);
+  feedLimitRef.current = feedLimit;
   // Cursor-following popover. Null when no card is hovered. Single state
   // for the whole grid — only one popover renders at a time. The 2xl:
   // breakpoint hides the popover on the largest screens where the inline
@@ -90,7 +95,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
     let cancelled = false;
     async function poll() {
       try {
-        const res = await fetch(`/api/live?limit=${feedLimit}`, { cache: 'no-store' });
+        const res = await fetch(`/api/live?limit=${feedLimitRef.current}`, { cache: 'no-store' });
         if (!res.ok) return;
         const json = (await res.json()) as LiveData;
         if (!cancelled) setData(json);
@@ -113,15 +118,15 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
       es.removeEventListener('pulls', onPulls);
       es.close();
     };
-  }, [feedLimit]);
+  }, []);
 
   async function loadMoreFeed() {
     if (feedLimit >= FEED_MAX) return;
     const next = Math.min(FEED_MAX, feedLimit + FEED_PAGE_STEP);
     setFeedLimit(next);
     // Trigger an immediate fetch at the new limit instead of waiting for the
-    // next 5s tick. The polling effect will re-run on the limit change too,
-    // but firing now feels snappier.
+    // next backstop poll — the poll reads feedLimit via a ref now, so it
+    // won't re-run on this state change.
     try {
       const res = await fetch(`/api/live?limit=${next}`, { cache: 'no-store' });
       if (!res.ok) return;
