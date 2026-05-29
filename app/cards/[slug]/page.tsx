@@ -243,7 +243,7 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
           <br />
           † {card.in_vault
             ? 'Currently held by a player. Status revalues on every poll.'
-            : 'Sold back to a player. Last value reflects payout context.'}
+            : 'Sold back to MnStr (vault). Last value reflects payout context.'}
         </Mono>
       </div>
     </div>

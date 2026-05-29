@@ -1436,7 +1436,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
   `;
   if (!card) return null;
 
-  const [agg] = await sql<Array<{ pulls: number; last_fmv: string | null; fmv_at_last_pull: string | null; held: number }>>`
+  const [agg] = await sql<Array<{ pulls: number; last_fmv: string | null; fmv_at_last_pull: string | null; held: number; mp_owned: boolean }>>`
     SELECT
       COUNT(*)::int                                  AS pulls,
       MAX(fmv_usd)::text                             AS last_fmv,
@@ -1447,7 +1447,12 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
         ORDER BY pulled_at DESC
         LIMIT 1
       )                                              AS fmv_at_last_pull,
-      COUNT(*) FILTER (WHERE status = 'holding')::int AS held
+      COUNT(*) FILTER (WHERE status = 'holding')::int AS held,
+      -- A marketplace-bought slab is currently held by its latest buyer (same
+      -- rule wallet_pnl uses). Counting only 'holding' pulls would mislabel a
+      -- card that every puller sold back but the vault then resold as
+      -- "sold-back", even though a player now owns it.
+      COALESCE(bool_or(marketplace_sold), false)     AS mp_owned
     FROM pulls_enriched WHERE card_slug = ${slug}
   `;
 
@@ -1483,7 +1488,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
     pulls_total: agg?.pulls ?? 0,
     last_fmv: agg?.last_fmv ? Number(agg.last_fmv) : null,
     fmv_at_last_pull: agg?.fmv_at_last_pull ? Number(agg.fmv_at_last_pull) : null,
-    in_vault: (agg?.held ?? 0) > 0,
+    in_vault: (agg?.held ?? 0) > 0 || (agg?.mp_owned ?? false),
     history,
     comparables: comparables.map(c => ({
       slug: c.slug,
