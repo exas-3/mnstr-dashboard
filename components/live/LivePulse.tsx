@@ -2,22 +2,19 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { KpiTile, Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
+import { Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
 import type { HitRow, Kpis } from '@/lib/queries';
 
-const POLL_MS = 5000;
+// SSE is primary; this HTTP poll is a backstop in case the EventSource
+// silently breaks (proxy reaped it, upstream restart, etc.). 5 min is short
+// enough to self-heal quickly without doubling load on the API.
+const POLL_MS = 5 * 60 * 1000;
 
 interface LiveData {
   kpis: Kpis;
   feed: HitRow[];
   latestBlock: { block: number; tier: string } | null;
   serverNow: string;
-}
-
-function abbrUsd(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${Math.round(n)}`;
 }
 
 function ago(iso: string): string {
@@ -33,7 +30,22 @@ function shortAddr(a: string): string {
 }
 
 const FEED_PAGE_STEP = 30;
-const FEED_MAX = 200;
+// Hard cap on the feed. Sized to comfortably cover ~1 week of pulls at
+// current ~700/day throughput, so consecutive Show-More clicks can walk back
+// roughly a week before the button hides. Mirror this on the API side
+// (app/api/live/route.ts:MAX_LIMIT) — they need to agree.
+const FEED_MAX = 6000;
+
+// Hover popover sizing — keep in sync with the inline render below.
+const POPOVER_W = 360;
+const POPOVER_OFFSET = 18;
+const VIEWPORT_MARGIN = 8;
+
+interface HoverState {
+  idx: number;
+  x: number;
+  y: number;
+}
 
 export default function LivePulse({ initial, embed = false }: { initial: LiveData; embed?: boolean }) {
   const [data, setData] = useState<LiveData>(initial);
@@ -47,6 +59,31 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
   // "Show more" click. Each poll re-fetches /api/live with this limit so
   // both new arrivals at the top and the expanded tail stay in sync.
   const [feedLimit, setFeedLimit] = useState(initial.feed.length);
+  // Cursor-following popover. Null when no card is hovered. Single state
+  // for the whole grid — only one popover renders at a time. The 2xl:
+  // breakpoint hides the popover on the largest screens where the inline
+  // grid cells are already big enough to read.
+  const [hover, setHover] = useState<HoverState | null>(null);
+
+  function handleHoverMove(e: React.MouseEvent<HTMLDivElement>, idx: number) {
+    // Estimate popover height for clamping (5:7 image + ~38px title row).
+    const popW = Math.min(POPOVER_W, window.innerWidth - 2 * VIEWPORT_MARGIN);
+    const popH = popW * (7 / 5) + 38;
+    let x = e.clientX + POPOVER_OFFSET;
+    let y = e.clientY + POPOVER_OFFSET;
+    if (x + popW > window.innerWidth - VIEWPORT_MARGIN) {
+      x = e.clientX - popW - POPOVER_OFFSET;
+    }
+    if (x < VIEWPORT_MARGIN) x = VIEWPORT_MARGIN;
+    if (y + popH > window.innerHeight - VIEWPORT_MARGIN) {
+      y = window.innerHeight - popH - VIEWPORT_MARGIN;
+    }
+    if (y < VIEWPORT_MARGIN) y = VIEWPORT_MARGIN;
+    setHover({ idx, x, y });
+  }
+  function handleHoverLeave() {
+    setHover(null);
+  }
 
   useEffect(() => {
     setMounted(true);
@@ -59,12 +96,22 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
         if (!cancelled) setData(json);
       } catch {}
     }
+    // Backstop HTTP poll — fires only if SSE goes dark.
     const id = window.setInterval(poll, POLL_MS);
     const tickId = window.setInterval(() => setTick(t => t + 1), 1000);
+    // Primary push channel — server emits `pulls` whenever the indexer
+    // inserts (or enriches) a pull. We refetch immediately so the new row
+    // and updated KPIs show up within ~1s of chain confirmation.
+    // EventSource auto-reconnects on transient errors.
+    const es = new EventSource('/api/live/stream');
+    const onPulls = () => poll();
+    es.addEventListener('pulls', onPulls);
     return () => {
       cancelled = true;
       window.clearInterval(id);
       window.clearInterval(tickId);
+      es.removeEventListener('pulls', onPulls);
+      es.close();
     };
   }, [feedLimit]);
 
@@ -85,7 +132,6 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
 
   // Use `tick` so age-out strings re-render
   void tick;
-  const big = data.feed.filter(p => Number(p.fmv_usd ?? 0) >= 1000).length;
 
   return (
     <div className="pb-6">
@@ -119,25 +165,17 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               ● STREAM LIVE
             </Mono>
             <Mono style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2, display: 'block' }}>
-              polling every {POLL_MS / 1000}s{mounted && ` · last ${ago(data.serverNow)} ago`}
+              real-time push{mounted && ` · last ${ago(data.serverNow)} ago`}
               {data.latestBlock && ` · block ${data.latestBlock.block.toLocaleString('en-US')}`}
             </Mono>
           </div>
         </div>
       )}
 
-      <SectionHead tag="WINDOW · 24H" title="Right now" />
-      <div className="mx-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-        <KpiTile label="Packs" value={data.kpis.packs.toLocaleString('en-US')} />
-        <KpiTile label="USDm" value={abbrUsd(data.kpis.usdmCycledUsd)} />
-        <KpiTile label="Paid out" value={abbrUsd(data.kpis.payoutUsd)} />
-        <KpiTile label="Big hits" value={String(big)} />
-      </div>
-
       <SectionHead tag="STREAM" title="Latest pulls" right="NEWEST FIRST" />
 
-      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-        {data.feed.map(it => {
+      <div className="mx-3 mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 sm:gap-3.5">
+        {data.feed.map((it, idx) => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
           const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
@@ -146,26 +184,40 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               style={{
                 aspectRatio: '5/7',
                 background: img
-                  ? `center/contain no-repeat url("${img}")`
+                  ? `center/contain no-repeat url("${img}"), var(--bg-3)`
                   : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
                 border: `1px solid ${fmv >= 1000 ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
                 position: 'relative',
                 padding: 6,
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between',
+                justifyContent: 'flex-end',
               }}
             >
-              <Mono style={{ fontSize: 8.5, color: 'var(--accent)', letterSpacing: '0.1em' }}>
-                ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              {/* Price pill at the bottom — same style as CardWallTile so the
+               * stream cards read consistently with the /cards wall. White
+               * text on a 70%-bg overlay so it stays legible against any
+               * card art. */}
+              <Mono
+                style={{
+                  fontSize: 12,
+                  color: 'var(--fg)',
+                  background: 'color-mix(in oklch, var(--bg) 70%, transparent)',
+                  padding: '1px 4px',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                ${fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0)}
               </Mono>
             </div>
           );
           return (
             <div
               key={it.request_id}
-              className="group relative flex flex-col gap-1.5 p-2"
+              className="relative flex flex-col gap-1.5 p-2"
               style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
+              onMouseMove={img ? e => handleHoverMove(e, idx) : undefined}
+              onMouseLeave={img ? handleHoverLeave : undefined}
             >
               {it.card_slug ? (
                 <Link href={`/cards/${it.card_slug}`} className="block">
@@ -188,53 +240,64 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
                 <TierTag tier={it.tier as Tier} style={{ padding: '1px 4px', fontSize: 7.5 }} />
                 <StatusPill status={it.status} />
               </div>
-
-              {/* Hover preview — visible only below 2xl, where the inline grid
-               * cells are small. CSS-only via group-hover; pointer-events-none
-               * so cursor stays in the underlying card and the popover doesn't
-               * flicker as the cursor crosses its bounds. */}
-              {img && (
-                <div
-                  className="pointer-events-none absolute left-1/2 top-1/2 z-50 hidden -translate-x-1/2 -translate-y-1/2 group-hover:block 2xl:!hidden"
-                  style={{ width: 360 }}
-                >
-                  <div
-                    style={{
-                      aspectRatio: '5/7',
-                      background: `center/contain no-repeat url("${img}"), var(--bg-3)`,
-                      border: `1px solid ${fmv >= 1000 ? 'var(--accent)' : 'var(--line)'}`,
-                      boxShadow:
-                        '0 16px 50px rgba(0,0,0,0.55), 0 0 0 1px color-mix(in oklch, var(--accent) 10%, transparent)',
-                    }}
-                  />
-                  <div
-                    className="mt-1.5 px-2 py-1.5 flex items-center justify-between"
-                    style={{ background: 'var(--bg-3)', border: '1px solid var(--line)' }}
-                  >
-                    <Mono
-                      style={{
-                        fontSize: 9.5,
-                        color: 'var(--fg)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        flex: 1,
-                      }}
-                    >
-                      {it.card_title ?? 'unknown card'}
-                    </Mono>
-                    <Mono style={{ fontSize: 10, color: 'var(--accent)', marginLeft: 8 }}>
-                      ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                    </Mono>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
 
-      {feedLimit < FEED_MAX && (
+      {/* Hover preview — single popover for the whole grid, position follows
+       * cursor with viewport-edge clamping. Hidden on 2xl+ where the grid
+       * cells are large enough to read on their own. */}
+      {hover && data.feed[hover.idx] && (() => {
+        const it = data.feed[hover.idx];
+        const fmv = Number(it.fmv_usd ?? 0);
+        const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
+        if (!img) return null;
+        return (
+          <div
+            className="pointer-events-none fixed z-50 2xl:hidden"
+            style={{
+              left: hover.x,
+              top: hover.y,
+              width: `min(${POPOVER_W}px, calc(100vw - ${2 * VIEWPORT_MARGIN}px))`,
+            }}
+          >
+            <div
+              style={{
+                aspectRatio: '5/7',
+                background: `center/contain no-repeat url("${img}"), var(--bg-3)`,
+                border: `1px solid ${fmv >= 1000 ? 'var(--accent)' : 'var(--line)'}`,
+                boxShadow:
+                  '0 16px 50px rgba(0,0,0,0.55), 0 0 0 1px color-mix(in oklch, var(--accent) 10%, transparent)',
+              }}
+            />
+            <div
+              className="mt-1.5 px-2 py-1.5 flex items-center justify-between"
+              style={{ background: 'var(--bg-3)', border: '1px solid var(--line)' }}
+            >
+              <Mono
+                style={{
+                  fontSize: 9.5,
+                  color: 'var(--fg)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flex: 1,
+                }}
+              >
+                {it.card_title ?? 'unknown card'}
+              </Mono>
+              <Mono style={{ fontSize: 10, color: 'var(--accent)', marginLeft: 8 }}>
+                ${fmv.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              </Mono>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Hide the button once we've hit the FEED_MAX cap OR the API has run
+       * out of rows (returned fewer than we asked for). */}
+      {feedLimit < FEED_MAX && data.feed.length >= feedLimit && (
         <div className="px-4 pt-3 pb-1 text-center">
           <button
             type="button"
@@ -250,7 +313,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               cursor: 'pointer',
             }}
           >
-            SHOW {Math.min(FEED_PAGE_STEP, FEED_MAX - feedLimit)} MORE
+            SHOW MORE
           </button>
         </div>
       )}

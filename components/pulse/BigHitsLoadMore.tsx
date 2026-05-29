@@ -78,7 +78,7 @@ export default function BigHitsLoadMore({
               cursor: loading ? 'wait' : 'pointer',
             }}
           >
-            {loading ? 'LOADING…' : `SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+            {loading ? 'LOADING…' : 'SHOW MORE'}
           </button>
         </div>
       )}

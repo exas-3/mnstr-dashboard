@@ -8,13 +8,23 @@ const COLOR: Record<string, string> = {
   Adventure: 'var(--tier-cyan)',
 };
 
+function abbrUsd(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}k`;
+  return `$${Math.round(n).toLocaleString('en-US')}`;
+}
+
 export default function TierStrip({ stats }: { stats: TierStats[] }) {
-  const peak = Math.max(...stats.map(s => s.pulls), 1);
+  // Bars weight by USD volume (pulls × pack price), not raw pull count, so
+  // low-count high-price tiers (Adventure $150, Ultra $1250) get visual
+  // weight proportional to their actual revenue contribution.
+  const peak = Math.max(...stats.map(s => s.pulls * s.price), 1);
   return (
     <div className="mx-3" style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
       {stats.map((t, i) => {
         const c = COLOR[t.tier] ?? 'var(--fg)';
-        const barPct = Math.max(2, Math.round((t.pulls / peak) * 100));
+        const volume = t.pulls * t.price;
+        const barPct = Math.max(2, Math.round((volume / peak) * 100));
         return (
           <div
             key={t.tier}
@@ -36,7 +46,7 @@ export default function TierStrip({ stats }: { stats: TierStats[] }) {
               </div>
               <div className="mt-1 flex justify-between">
                 <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
-                  {t.pulls.toLocaleString('en-US')} pulls
+                  {abbrUsd(volume)} vol · {t.pulls.toLocaleString('en-US')} pulls
                 </Mono>
                 <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
                   EV ${t.evUsd.toFixed(t.evUsd < 100 ? 2 : 0)}

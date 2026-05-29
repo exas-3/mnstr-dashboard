@@ -1,24 +1,11 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
 import { cardImageUrl } from '@/lib/img';
+import LocalTime from '../LocalTime';
 import type { HitRow } from '@/lib/queries';
 
 function shortAddr(a: string): string {
   return a.slice(0, 4) + '…' + a.slice(-4);
-}
-
-/* Render the pull's timestamp as "MMM D · HH:MM" UTC. Hand-formatted (no Intl)
- * because Node's ICU and Chrome's V8 Intl disagree on subtleties — narrow
- * no-break spaces in particular — and React errors out on hydration when even
- * one character differs between SSR and CSR. */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  const m = MONTHS[d.getUTCMonth()];
-  const day = d.getUTCDate();
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const min = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${m} ${day} · ${h}:${min}`;
 }
 
 export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolean }) {
@@ -69,7 +56,7 @@ export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolea
       <div style={{ textAlign: 'right' }}>
         <Mono style={{ fontSize: 12, color: 'var(--accent)', display: 'block' }}>${fmvLabel}</Mono>
         <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.08em', marginTop: 2, display: 'block' }}>
-          {fmtDate(hit.pulled_at)}
+          <LocalTime iso={hit.pulled_at} format="datetime" />
         </Mono>
       </div>
     </div>

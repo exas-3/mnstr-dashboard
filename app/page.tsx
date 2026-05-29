@@ -11,21 +11,19 @@ import {
   getLatestIndexedBlock,
   type TimeWindowKey,
 } from '@/lib/queries';
-import { getTheme } from '@/lib/server-theme';
 import { KpiTile, Mono, SectionHead } from '@/components/primitives';
 import VelocityChart from '@/components/VelocityChart';
 import TierStrip from '@/components/pulse/TierStrip';
 import LivePulse from '@/components/live/LivePulse';
 import BigHitsLoadMore from '@/components/pulse/BigHitsLoadMore';
 import BigHitBanner from '@/components/BigHitBanner';
-import AsciiPulse from '@/components/arcade/AsciiPulse';
 
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: 'Pulse — live MnStr gacha analytics on MegaETH',
+  title: 'Pulse — live MnStr Pokémon TCG & One Piece gacha analytics',
   description:
-    'Live snapshot of MnStr pack pulls, big hits, and house economics on the MegaETH chain. Updated every 5 seconds.',
+    'Live snapshot of MnStr pack pulls, big hits, and house economics for graded Pokémon TCG and One Piece collectible cards. Real-time push from chain.',
   alternates: { canonical: '/' },
 };
 
@@ -89,13 +87,12 @@ export default async function PulsePage({
 }) {
   const params = await searchParams;
   const window: TimeWindowKey =
-    params.w === '7d' ? '7d'
+    params.w === '24h' ? '24h'
+    : params.w === '7d' ? '7d'
     : params.w === '30d' ? '30d'
-    : params.w === 'all' ? 'all'
-    : '24h';
+    : 'all';
 
-  const [theme, kpis, velocity, tiers, topHits, topHitsDeduped, topHitsDedupedTotal, live, liveKpis, latestBlock] = await Promise.all([
-    getTheme(),
+  const [kpis, velocity, tiers, topHits, topHitsDeduped, topHitsDedupedTotal, live, liveKpis, latestBlock] = await Promise.all([
     getKpisFor(window),
     getVelocityByTier(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
     getTierStats(window),
@@ -124,31 +121,12 @@ export default async function PulsePage({
 
   const cycled = abbrUsd(kpis.usdmCycledUsd);
   const payouts = abbrUsd(kpis.payoutUsd);
-  const allCycled = abbrUsd(kpis.usdmCycledAllTimeUsd);
 
   // Big hit banner: latest top hit if ≥ $1k FMV and resolved (sold_back) or fresh
-  const bigHit = topHits.find(h => Number(h.fmv_usd ?? 0) >= 1000) ?? null;
+  // Banner = the biggest pull-time FMV in the window (topHits is already ordered
+  // by fmv_at_pull_usd DESC), shown only if it cleared $1k at pull time.
+  const bigHit = topHits.find(h => Number(h.fmv_at_pull_usd ?? 0) >= 1000) ?? null;
   const winLabel = WINDOWS.find(w => w.key === window)?.label ?? '24H';
-
-  if (theme === 'arcade') {
-    return (
-      <AsciiPulse
-        data={{
-          window,
-          kpis,
-          velocity,
-          velocityDays: VELOCITY_SPAN[window].span,
-          velocityGranularity: VELOCITY_SPAN[window].granularity,
-          tiers,
-          topHits,
-          live,
-          bigHit,
-          latestBlock,
-          liveInitial,
-        }}
-      />
-    );
-  }
 
   return (
     <div className="pb-6">
@@ -159,39 +137,22 @@ export default async function PulsePage({
             title: bigHit.card_title ?? `Pull #${bigHit.request_id.slice(0, 6)}`,
             who: bigHit.username ? `@${bigHit.username}` : shortAddr(bigHit.wallet),
             tier: bigHit.tier.toUpperCase(),
-            fmv: Math.round(Number(bigHit.fmv_usd ?? 0)).toLocaleString('en-US'),
+            // FMV frozen at pull time (falls back to current if not yet snapshotted).
+            fmv: Math.round(Number(bigHit.fmv_at_pull_usd ?? bigHit.fmv_usd ?? 0)).toLocaleString('en-US'),
             imageUrl: bigHit.card_slug ? `/img/${bigHit.card_slug}` : bigHit.card_image_front,
             href: bigHit.card_slug ? `/cards/${bigHit.card_slug}` : undefined,
           }}
         />
       )}
 
-      {/* Today header + TimePivot */}
-      <div className="flex items-end gap-2.5 px-3 pt-3.5">
-        <div className="flex-1">
-          <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.18em' }}>
-            NOW
-          </Mono>
-          <div
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: 22,
-              color: 'var(--fg)',
-              marginTop: 4,
-              letterSpacing: '-0.015em',
-            }}
-          >
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </div>
-          <Mono style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3, display: 'block' }}>
-            UTC {new Date().toISOString().slice(11, 16)}
-            {latestBlock && ` · block ${latestBlock.block.toLocaleString('en-US')}`}
-          </Mono>
-        </div>
+      {/* Time-window toggle. The "NOW · weekday/date · UTC block" header that
+       * used to sit to the left was removed; only the window pivot remains. */}
+      <div className="flex justify-end px-3 pt-3.5">
         <div className="inline-flex" style={{ border: '1px solid var(--line-soft)', background: 'var(--bg-2)' }}>
           {WINDOWS.map((w, i) => {
             const on = w.key === window;
-            const href = w.key === '24h' ? '/' : `/?w=${w.key}`;
+            // ALL is the bare `/` (default); other windows append ?w=.
+            const href = w.key === 'all' ? '/' : `/?w=${w.key}`;
             return (
               <Link
                 key={w.key}
@@ -223,8 +184,18 @@ export default async function PulsePage({
           <KpiTile label={`USDm · ${winLabel}`} value={cycled.value} unit={cycled.unit} />
           <KpiTile label={`Payouts · ${winLabel}`} value={payouts.value} unit={payouts.unit} />
           <KpiTile label={`Wallets · ${winLabel}`} value={kpis.walletsActive.toLocaleString('en-US')} />
-          <KpiTile label="Packs · all-time" value={kpis.packsAllTime.toLocaleString('en-US')} delta="cumulative" />
-          <KpiTile label="USDm · all-time" value={allCycled.value} unit={allCycled.unit} delta="cumulative" />
+          <KpiTile label={`Big hits · ${winLabel}`} value={kpis.bigHits.toLocaleString('en-US')} delta="fmv ≥ $1k" />
+          {(() => {
+            const h = abbrUsd(kpis.heldFmvUsd);
+            return (
+              <KpiTile
+                label={`Held FMV · ${winLabel}`}
+                value={h.value}
+                unit={h.unit}
+                delta="outstanding"
+              />
+            );
+          })()}
         </div>
 
         {/* Velocity */}
@@ -232,9 +203,12 @@ export default async function PulsePage({
           const { span, granularity } = VELOCITY_SPAN[window];
           const unit = granularity === 'hour' ? 'H' : 'D';
           const titleNoun = granularity === 'hour' ? 'Packs/hour' : 'Packs/day';
+          // For the ALL window, show the actual word "ALL" instead of the
+          // synthetic "90D" cap since the user selected all-time.
+          const backdrop = window === 'all' ? 'ALL' : `${span}${unit}`;
           return (
             <>
-              <SectionHead tag="VELOCITY" title={`${titleNoun}, stacked`} right={`${span}${unit} BACKDROP`} />
+              <SectionHead tag="VELOCITY" title={`${titleNoun}, stacked`} right={`${backdrop} BACKDROP`} />
               <VelocityChart data={velocity} span={span} granularity={granularity} />
             </>
           );
@@ -249,22 +223,21 @@ export default async function PulsePage({
         <SectionHead
           tag="BIG HITS"
           title={`Top hits · ${winLabel}`}
-          right={`${topHitsDeduped.length} OF ${topHitsDedupedTotal.toLocaleString('en-US')}`}
         />
-        <BigHitsLoadMore window={window} initialRows={topHitsDeduped} total={topHitsDedupedTotal} />
+        <BigHitsLoadMore
+          // `key` so the component remounts when the window toggle changes —
+          // otherwise React preserves the internal `rows` state (which was
+          // seeded from the OLD initialRows) and the list keeps showing the
+          // previous window's pulls until Show More is clicked.
+          key={window}
+          window={window}
+          initialRows={topHitsDeduped}
+          total={topHitsDedupedTotal}
+        />
 
-        {/* Embedded live stream — full /live experience inline. Locked to
-         * 24h regardless of Pulse window. The component polls /api/live
-         * every 5s on its own. */}
-        <SectionHead
-          tag="LIVE"
-          title="Live stream"
-          right={
-            <Link href="/live" style={{ color: 'var(--accent)' }}>
-              OPEN FULLSCREEN →
-            </Link>
-          }
-        />
+        {/* Embedded live stream. Locked to 24h regardless of Pulse window.
+         * The component subscribes to /api/live/stream (SSE push) and refetches
+         * /api/live on each push; 5-min HTTP poll backstop in case SSE dies. */}
         <LivePulse initial={liveInitial} embed />
       </div>
 

@@ -12,7 +12,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const DEFAULT_LIMIT = 30;
-const MAX_LIMIT = 200;
+// Cap mirrored from components/live/LivePulse.tsx FEED_MAX — keep in sync.
+// Sized to cover ~1 week of pulls (~5000 at current cadence).
+const MAX_LIMIT = 6000;
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
