@@ -51,7 +51,10 @@ async function upsertCard(api: ApiPull): Promise<string | null> {
   return c.slug;
 }
 
-export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promise<'ok' | 'missing' | 'error'> {
+export async function enrichOne(
+  requestId: bigint,
+  limiter?: RateLimiter,
+): Promise<'ok' | 'no_card' | 'missing' | 'error'> {
   if (limiter) await limiter.take();
   try {
     const pull = await getPull(requestId);
@@ -96,7 +99,10 @@ export async function enrichOne(requestId: bigint, limiter?: RateLimiter): Promi
     // Second SSE tick after the row is fully enriched — first tick (from
     // insert) had no title/image/username; this one does. Cheap to over-notify.
     sql.notify('pulls_tick', '').catch(() => {});
-    return 'ok';
+    // 'no_card' = the pull exists on the API but mnstr hasn't assigned its card
+    // yet (fast-enrich raced ahead). Caller should retry shortly rather than
+    // wait for the 24h restatus pass.
+    return cardSlug ? 'ok' : 'no_card';
   } catch (e) {
     console.error(`enrich ${requestId} error:`, e instanceof Error ? e.message : e);
     return 'error';
@@ -123,7 +129,7 @@ export async function enrichPending(limit = 5000): Promise<void> {
     err = 0;
   await runWithConcurrency(rows, config.enrichConcurrency, async row => {
     const r = await enrichOne(BigInt(row.request_id), limiter);
-    if (r === 'ok') ok++;
+    if (r === 'ok' || r === 'no_card') ok++;
     else if (r === 'missing') miss++;
     else err++;
     if ((ok + miss + err) % 100 === 0) {
@@ -131,6 +137,38 @@ export async function enrichPending(limit = 5000): Promise<void> {
     }
   });
   console.log(`[enrich] done ok=${ok} miss=${miss} err=${err}`);
+}
+
+/**
+ * Backstop for the enrich↔card-assignment race. A pull's WS fast-enrich (and
+ * any retries) can all land before mnstr assigns its card, leaving card_slug
+ * NULL with enriched_at set — which excludes it from enrichPending, and
+ * restatusHolding won't revisit it for restatusAgeHours (24h). So the newest
+ * pulls show up in the Live feed with no title/image. This re-enriches still
+ * card-less RECENT pulls every reconcile (ignoring the 24h gate) so they fill
+ * in within one cycle once the card lands. Scoped to a short window so we don't
+ * hammer the API for genuinely-never-assigned old pulls.
+ */
+export async function enrichRecentMissing(withinHours = 6, limit = 500): Promise<void> {
+  const cutoff = new Date(Date.now() - withinHours * 3600 * 1000);
+  const rows = await sql<{ request_id: string }[]>`
+    SELECT request_id::text AS request_id
+    FROM pulls
+    WHERE card_slug IS NULL AND pulled_at >= ${cutoff}
+    ORDER BY pulled_at DESC
+    LIMIT ${limit}
+  `;
+  if (rows.length === 0) return;
+  console.log(`[enrich-recent] re-checking ${rows.length} card-less pulls from last ${withinHours}h`);
+  const limiter = new RateLimiter(config.enrichRps);
+  let ok = 0, pending = 0, err = 0;
+  await runWithConcurrency(rows, config.enrichConcurrency, async row => {
+    const r = await enrichOne(BigInt(row.request_id), limiter);
+    if (r === 'ok') ok++;
+    else if (r === 'error') err++;
+    else pending++; // no_card / missing — still no card on mnstr's side
+  });
+  console.log(`[enrich-recent] done resolved=${ok} still-pending=${pending} err=${err}`);
 }
 
 export async function restatusHolding(limit = 2000): Promise<void> {
@@ -164,7 +202,7 @@ export async function restatusHolding(limit = 2000): Promise<void> {
     err = 0;
   await runWithConcurrency(rows, config.enrichConcurrency, async row => {
     const r = await enrichOne(BigInt(row.request_id), limiter);
-    if (r === 'ok' || r === 'missing') ok++;
+    if (r === 'ok' || r === 'no_card' || r === 'missing') ok++;
     else err++;
   });
   console.log(`[restatus] done ok=${ok} err=${err}`);

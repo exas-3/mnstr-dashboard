@@ -30,6 +30,27 @@ import { insertSellbacks } from './sellbacks.js';
 import { insertSales, insertPriceUpdates } from './marketplace.js';
 import { enrichOne } from './enrich.js';
 
+// Retry the fast-enrich on a short backoff while mnstr hasn't assigned the
+// card yet (enrichOne → 'no_card'). ~5s,10s,20s,40s,80s,160s ≈ 5min total,
+// after which the per-reconcile enrichRecentMissing backstop takes over.
+const FAST_ENRICH_DELAYS_MS = [5_000, 10_000, 20_000, 40_000, 80_000, 160_000];
+function scheduleFastEnrich(requestId: bigint): void {
+  let attempt = 0;
+  const tick = () => {
+    enrichOne(requestId)
+      .then(r => {
+        if (r === 'no_card' && attempt < FAST_ENRICH_DELAYS_MS.length) {
+          setTimeout(tick, FAST_ENRICH_DELAYS_MS[attempt++]);
+        }
+      })
+      .catch(err => {
+        console.warn(`[ws] fast-enrich ${requestId} failed (reconcile will retry):`, err instanceof Error ? err.message : err);
+        if (attempt < FAST_ENRICH_DELAYS_MS.length) setTimeout(tick, FAST_ENRICH_DELAYS_MS[attempt++]);
+      });
+  };
+  setTimeout(tick, FAST_ENRICH_DELAYS_MS[attempt++]);
+}
+
 interface AlchemyWsLog {
   address: string;
   topics: string[];
@@ -138,14 +159,11 @@ async function handleLog(wsLog: AlchemyWsLog): Promise<void> {
       console.log(`[ws] PULL  ${tier.padEnd(9)} req=${decoded.requestId} wallet=${decoded.wallet.slice(0, 8)}…`);
       // Fast-enrich path: kick off card/user lookup in the background so the
       // dashboard's Live feed sees the title + image + username within seconds
-      // instead of waiting up to 5 min for the reconcile poll. 5s delay gives
-      // MnStr's own indexer time to surface the pull on their API.
-      const requestId = decoded.requestId;
-      setTimeout(() => {
-        enrichOne(requestId).catch(err => {
-          console.warn(`[ws] fast-enrich ${requestId} failed (reconcile will retry):`, err instanceof Error ? err.message : err);
-        });
-      }, 5_000);
+      // instead of waiting for the reconcile poll. The first 5s delay gives
+      // MnStr's own indexer time to surface the pull; if the card isn't
+      // assigned yet (`no_card`) we retry on a short backoff (~5m total) so the
+      // newest pull fills in promptly rather than waiting for the 24h restatus.
+      scheduleFastEnrich(decoded.requestId);
     }
   } else if (topic0 === NFT_SOLD_BACK_TOPIC) {
     const decoded = decodeSellback(raw);

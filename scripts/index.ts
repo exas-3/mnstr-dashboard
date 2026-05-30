@@ -3,7 +3,7 @@ import { backfillAll } from './backfill.js';
 import { backfillSellbacks } from './sellbacks.js';
 import { backfillRedemptions } from './redemptions.js';
 import { backfillMarketplace } from './marketplace.js';
-import { enrichPending, restatusHolding } from './enrich.js';
+import { enrichPending, restatusHolding, enrichRecentMissing } from './enrich.js';
 import { refreshCardFmvs } from './fmv.js';
 import { pollLoop, pollOnce } from './poll.js';
 import { snapshotLeaderboard } from './leaderboard.js';
@@ -65,6 +65,11 @@ async function main() {
       case 'restatus': {
         const limit = rest[0] ? Number(rest[0]) : 2000;
         await restatusHolding(limit);
+        break;
+      }
+      case 'enrich-recent': {
+        const hours = rest[0] ? Number(rest[0]) : 6;
+        await enrichRecentMissing(hours);
         break;
       }
       case 'refresh-fmvs':

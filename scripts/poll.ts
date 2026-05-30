@@ -5,7 +5,7 @@ import { backfillRedemptions } from './redemptions.js';
 import { backfillMarketplace } from './marketplace.js';
 import { backfillUsdmFlows, linkSellbacksOnchain } from './usdm-flows.js';
 import { getLatestBlock } from './chain.js';
-import { enrichPending, restatusHolding } from './enrich.js';
+import { enrichPending, enrichRecentMissing, restatusHolding } from './enrich.js';
 import { refreshCardFmvs } from './fmv.js';
 import { startWs } from './ws.js';
 
@@ -26,6 +26,9 @@ export async function pollOnce(): Promise<void> {
   // raced past a just-inserted sellback row. Idempotent, cheap.
   await linkSellbacksOnchain();
   await enrichPending();
+  // Catch pulls whose card mnstr assigned after our fast-enrich raced ahead
+  // (card_slug still NULL) without waiting for the 24h restatus pass.
+  await enrichRecentMissing();
 }
 
 /* Indexer entrypoint. Topology:
