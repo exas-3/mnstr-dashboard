@@ -18,7 +18,7 @@ import {
 import { BackIcon } from '@/components/Icons';
 import WalletPnlChart from '@/components/wallets/WalletPnlChart';
 import HeldFmvChart from '@/components/wallets/HeldFmvChart';
-import { getWalletHeldFmvSeries, type HeldFmvPoint } from '@/lib/queries/held-fmv';
+import { getWalletHeldFmvSeries } from '@/lib/queries/held-fmv';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
 import CollectionTile from '@/components/wallets/CollectionTile';
 
@@ -91,15 +91,12 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const wallet = addr.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(wallet)) return notFound();
 
-  // Held-inventory FMV chart is localhost-only (dev): gate both the query and
-  // the render so it never runs or shows on the deployed prod build.
-  const isDev = process.env.NODE_ENV === 'development';
   const [detail, activity, activityTotal, pnlSeries, heldSeries] = await Promise.all([
     getWalletDetail(wallet),
     getWalletActivity(wallet, 0, 12),
     getWalletActivityCount(wallet),
     getWalletPnlSeries(wallet),
-    isDev ? getWalletHeldFmvSeries(wallet) : Promise.resolve<HeldFmvPoint[]>([]),
+    getWalletHeldFmvSeries(wallet),
   ]);
 
   if (!detail) return notFound();
@@ -207,8 +204,8 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
       {/* Net P&L over time / pulls */}
       <WalletPnlChart points={pnlSeries} net={detail.net} />
 
-      {/* Held-inventory FMV over time — localhost only */}
-      {isDev && <HeldFmvChart points={heldSeries} current={detail.vaultFmv} />}
+      {/* Held-inventory FMV over time */}
+      <HeldFmvChart points={heldSeries} current={detail.vaultFmv} />
 
       {/* Tier mix */}
       <SectionHead tag="01 · TIER MIX" title="Where they spent" />
