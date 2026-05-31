@@ -1272,30 +1272,6 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
 }
 
 /* ─────────────────────────────────────────────────────────────
- * Wallet pull rhythm — 12 weekly buckets with a big-hit flag.
- * ───────────────────────────────────────────────────────────── */
-
-export interface WalletRhythmPoint {
-  bucket: string;     // YYYY-MM-DD of week start
-  pulls: number;
-  bigHit: boolean;    // any pull ≥ $1k FMV
-}
-
-export async function getWalletPullRhythm(wallet: string, weeks = 12): Promise<WalletRhythmPoint[]> {
-  return sql<WalletRhythmPoint[]>`
-    SELECT
-      to_char(date_trunc('week', pulled_at), 'YYYY-MM-DD')           AS bucket,
-      COUNT(*)::int                                                   AS pulls,
-      bool_or(fmv_usd >= 1000)                                        AS "bigHit"
-    FROM pulls_enriched
-    WHERE wallet = ${wallet.toLowerCase()}
-      AND pulled_at >= now() - (${weeks} * 7 || ' days')::interval
-    GROUP BY 1
-    ORDER BY 1
-  `;
-}
-
-/* ─────────────────────────────────────────────────────────────
  * Cards — the wall + detail
  *
  * View options:

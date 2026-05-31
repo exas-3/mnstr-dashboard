@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   getWalletDetail,
-  getWalletPullRhythm,
   getWalletActivity,
   getWalletActivityCount,
   getWalletPnlSeries,
@@ -18,7 +17,6 @@ import {
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
 import WalletPnlChart from '@/components/wallets/WalletPnlChart';
-import WalletRhythm from '@/components/wallets/WalletRhythm';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
 import CollectionTile from '@/components/wallets/CollectionTile';
 
@@ -91,9 +89,8 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const wallet = addr.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(wallet)) return notFound();
 
-  const [detail, rhythm, activity, activityTotal, pnlSeries] = await Promise.all([
+  const [detail, activity, activityTotal, pnlSeries] = await Promise.all([
     getWalletDetail(wallet),
-    getWalletPullRhythm(wallet, 12),
     getWalletActivity(wallet, 0, 12),
     getWalletActivityCount(wallet),
     getWalletPnlSeries(wallet),
@@ -279,10 +276,6 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         initialRows={activity}
         totalEvents={activityTotal}
       />
-
-      {/* Rhythm */}
-      <SectionHead tag="04 · RHYTHM" title="Pulls over time" right="12 WK" />
-      <WalletRhythm data={rhythm} weeks={12} />
 
       {/* Footer */}
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
