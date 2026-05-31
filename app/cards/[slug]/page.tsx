@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getCardDetail, getCardActivity, getCardActivityCount } from '@/lib/queries';
+import { getCardDetail, getCardActivity, getCardActivityCount, getCardFmvHistory } from '@/lib/queries';
 import {
   KpiTile,
   Lbl,
@@ -12,6 +12,7 @@ import {
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
 import CardHistoryLoadMore from '@/components/cards/CardHistoryLoadMore';
+import CardFmvChart from '@/components/cards/CardFmvChart';
 
 export const revalidate = 300;
 
@@ -68,9 +69,10 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
   if (!card) return notFound();
 
   // Recent history = interleaved pull + marketplace events for this slab.
-  const [activity, activityTotal] = await Promise.all([
+  const [activity, activityTotal, fmvHistory] = await Promise.all([
     getCardActivity(slug, 0, 20),
     getCardActivityCount(slug),
+    getCardFmvHistory(slug),
   ]);
 
   const eyebrowBits = [card.card_set, card.year ? String(card.year) : null, card.grading]
@@ -194,6 +196,9 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
           value={card.last_fmv !== null ? usd(card.last_fmv) : '–'}
         />
       </div>
+
+      {/* FMV history */}
+      <CardFmvChart points={fmvHistory} current={card.last_fmv} />
 
       {/* Recent history — interleaved pulls + marketplace sales for this slab,
        * ordered DESC by timestamp. First 20 SSR'd; "Show more" appends 10 at

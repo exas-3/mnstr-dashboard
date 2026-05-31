@@ -489,3 +489,54 @@ export async function getCardActivity(
   });
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * Card FMV history — the card's MnStr FMV over time
+ * ───────────────────────────────────────────────────────────── */
+
+export interface CardFmvPoint {
+  ts: number;  // epoch ms
+  fmv: number; // MnStr FMV at this instant, USD
+}
+
+/* One card's FMV over time. Two observation streams, merged + sorted: every
+ * pull froze the card's FMV (fmv_at_pull_usd) at that moment — covering the
+ * whole history, including before the hourly poll — and the hourly snapshots
+ * (fmv_usd, since 2026-05-28). Consecutive equal values are collapsed; the
+ * series ends at "now" at the live FMV (= the page's MnStr FMV = MAX fmv_usd). */
+export async function getCardFmvHistory(slug: string): Promise<CardFmvPoint[]> {
+  const rows = await sql<Array<{ t: string; fmv: string }>>`
+    SELECT t::text, fmv::text FROM (
+      -- pull appraisals, collapsed to the points where the FMV changed
+      SELECT pulled_at AS t, fmv_at_pull_usd AS fmv FROM (
+        SELECT pulled_at, fmv_at_pull_usd,
+               lag(fmv_at_pull_usd) OVER (ORDER BY pulled_at) AS prev
+        FROM pulls WHERE card_slug = ${slug} AND fmv_at_pull_usd IS NOT NULL
+      ) z WHERE prev IS DISTINCT FROM fmv_at_pull_usd
+      UNION ALL
+      -- hourly snapshots
+      SELECT observed_at AS t, fmv_usd AS fmv FROM card_fmv_snapshots WHERE card_slug = ${slug}
+    ) obs
+    ORDER BY t`;
+  if (rows.length === 0) return [];
+
+  const [cur] = await sql<Array<{ fmv: string | null }>>`
+    SELECT MAX(fmv_usd)::text AS fmv FROM pulls WHERE card_slug = ${slug}`;
+
+  const out: CardFmvPoint[] = [];
+  let lastFmv = NaN;
+  for (const r of rows) {
+    const fmv = Number(r.fmv);
+    if (fmv === lastFmv) continue; // collapse consecutive equal observations
+    out.push({ ts: Date.parse(r.t), fmv: Math.round(fmv * 100) / 100 });
+    lastFmv = fmv;
+  }
+  // Always extend to "now" at the live FMV: an unchanged card then draws a flat
+  // first-pull→now line (two points) instead of a lone dot, and a card last
+  // appraised a while ago carries its value to the present.
+  const currentFmv = cur?.fmv != null ? Number(cur.fmv) : NaN;
+  if (Number.isFinite(currentFmv)) {
+    out.push({ ts: Date.now(), fmv: Math.round(currentFmv * 100) / 100 });
+  }
+  return out;
+}
+
