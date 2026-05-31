@@ -1296,66 +1296,6 @@ export async function getWalletPullRhythm(wallet: string, weeks = 12): Promise<W
 }
 
 /* ─────────────────────────────────────────────────────────────
- * Wallet neighbours — ±k by spend rank.
- * ───────────────────────────────────────────────────────────── */
-
-export interface NeighbourRow {
-  rank: number;
-  wallet: string;
-  handle: string | null;
-  pulls: number;
-  spend: number;
-  net: number;
-  current?: boolean;
-}
-
-export async function getWalletNeighbours(wallet: string, k = 3): Promise<NeighbourRow[]> {
-  const addr = wallet.toLowerCase();
-  const rows = await sql<Array<{
-    rank: number;
-    wallet: string;
-    handle: string | null;
-    pulls: number;
-    spend: string;
-    net: string;
-    current: boolean;
-  }>>`
-    WITH per_wallet AS (
-      SELECT
-        wallet,
-        MAX(username) AS handle,
-        COUNT(*)::int AS pulls,
-        SUM(price_usd)::text AS spend,
-        (COALESCE(SUM(payout_usd) FILTER (WHERE status = 'sold_back'), 0) - SUM(price_usd))::text AS net,
-        RANK() OVER (ORDER BY SUM(price_usd) DESC) AS rank
-      FROM pulls_enriched
-      GROUP BY wallet
-    ),
-    me AS (SELECT rank FROM per_wallet WHERE wallet = ${addr})
-    SELECT
-      pw.rank,
-      pw.wallet,
-      pw.handle,
-      pw.pulls,
-      pw.spend,
-      pw.net,
-      pw.wallet = ${addr} AS current
-    FROM per_wallet pw, me
-    WHERE pw.rank BETWEEN me.rank - ${k} AND me.rank + ${k}
-    ORDER BY pw.rank
-  `;
-  return rows.map(r => ({
-    rank: r.rank,
-    wallet: r.wallet,
-    handle: r.handle,
-    pulls: r.pulls,
-    spend: Number(r.spend),
-    net: Number(r.net),
-    current: r.current,
-  }));
-}
-
-/* ─────────────────────────────────────────────────────────────
  * Cards — the wall + detail
  *
  * View options:
