@@ -315,6 +315,15 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
       else if (p.kind === 'buy') into.buys.push(ref);
       else if (p.kind === 'pull') into.pulls.push(ref);
     };
+    // A card that lands in two lists of one bucket would show its picture
+    // twice. Keep each slug once, preferring sells > buys > pulls.
+    const dedupe = (a: { pulls: CardRef[]; buys: CardRef[]; sells: CardRef[] }) => {
+      const taken = new Set<string>();
+      for (const c of a.sells) if (c.slug) taken.add(c.slug);
+      a.buys = a.buys.filter(c => !c.slug || !taken.has(c.slug));
+      for (const c of a.buys) if (c.slug) taken.add(c.slug);
+      a.pulls = a.pulls.filter(c => !c.slug || !taken.has(c.slug));
+    };
     if (hi <= lo) {
       const acc = { pulls: [] as CardRef[], buys: [] as CardRef[], sells: [] as CardRef[] };
       cardOf(last, acc);
@@ -339,6 +348,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
       }
       prevClose = close;
       if (mode === 'pulls' && consumed === 0) continue;
+      dedupe(acc);
       const center = Math.round(lo + step * (b + 0.5));
       out.push({
         k: out.length,

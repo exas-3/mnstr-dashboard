@@ -1207,19 +1207,34 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
   const addr = wallet.toLowerCase();
   const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy'; card: string | null; card_slug: string | null }>>`
     -- Pull: acquire a card at its FMV, pay the pack price (one merged step).
+    -- A "quick flip" (sold back within 1h) is OMITTED here and booked instead
+    -- as one round-trip SELL in the sellback branch — so it reads as a single
+    -- red sell, never a pull, and never leaves a candle card-less. The sell
+    -- time is taken the way the sellback branch books it (payout tx, else the
+    -- clamped sold_at) so the two branches agree on what counts as <1h.
     SELECT pe.pulled_at::text AS t,
            (COALESCE(pe.fmv_usd, 0) - COALESCE(pe.price_usd, 0))::float8 AS d,
            'pull'::text AS kind,
            COALESCE(c.title, pe.card_slug) AS card,
            pe.card_slug AS card_slug
-    FROM pulls_enriched pe LEFT JOIN cards c ON c.slug = pe.card_slug
+    FROM pulls_enriched pe
+    LEFT JOIN cards c ON c.slug = pe.card_slug
+    LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
     WHERE pe.wallet = ${addr}
+      AND NOT (pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
+               AND COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)) < pe.pulled_at + interval '1 hour')
     UNION ALL
     -- Sellback: receive the payout, give the card back — booked at the payout
     -- settlement time so the cash and the FMV-removal land together (no spike).
     -- Clamp away any bogus 1970 sold_at (a sellback can't precede its pull).
+    -- A quick flip's pull was omitted above, so book the FULL round-trip here
+    -- (payout − price); a held sell only books payout − fmv (its pull already
+    -- booked fmv − price). Same <1h test as the pull branch's exclusion.
     SELECT COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at))::text,
-           (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8,
+           (COALESCE(pe.payout_usd, 0)
+             - CASE WHEN COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)) < pe.pulled_at + interval '1 hour'
+                    THEN COALESCE(pe.price_usd, 0)
+                    ELSE COALESCE(pe.fmv_usd, 0) END)::float8,
            'sellback',
            COALESCE(c.title, pe.card_slug),
            pe.card_slug
