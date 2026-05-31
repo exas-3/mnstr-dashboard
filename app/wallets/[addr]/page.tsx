@@ -7,6 +7,7 @@ import {
   getWalletNeighbours,
   getWalletActivity,
   getWalletActivityCount,
+  getWalletPnlSeries,
 } from '@/lib/queries';
 import {
   Identicon,
@@ -14,10 +15,10 @@ import {
   Lbl,
   Mono,
   SectionHead,
-  Sparkline,
   tierLabel,
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
+import WalletPnlChart from '@/components/wallets/WalletPnlChart';
 import WalletRhythm from '@/components/wallets/WalletRhythm';
 import WalletNeighbours from '@/components/wallets/WalletNeighbours';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
@@ -92,12 +93,13 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const wallet = addr.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(wallet)) return notFound();
 
-  const [detail, rhythm, neighbours, activity, activityTotal] = await Promise.all([
+  const [detail, rhythm, neighbours, activity, activityTotal, pnlSeries] = await Promise.all([
     getWalletDetail(wallet),
     getWalletPullRhythm(wallet, 12),
     getWalletNeighbours(wallet, 3),
     getWalletActivity(wallet, 0, 12),
     getWalletActivityCount(wallet),
+    getWalletPnlSeries(wallet),
   ]);
 
   if (!detail) return notFound();
@@ -107,9 +109,6 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const spend = abbrUsd(detail.spend);
   const payout = abbrUsd(detail.payout);
   const tierTotal = detail.tierMix.reduce((s, t) => s + t.pulls, 0);
-
-  // Simple "+" / "-" sparkline based on pulls per recent week
-  const spark = rhythm.map(r => r.pulls);
 
   return (
     <div className="pb-6">
@@ -158,20 +157,8 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         className="mx-3 mt-2 px-3.5 py-3"
         style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}
       >
-        <div className="flex items-baseline justify-between">
-          <Lbl>Net P&amp;L</Lbl>
-          {spark.length > 1 && (
-            <Mono
-              style={{
-                fontSize: 9,
-                color: spark[spark.length - 1] >= spark[0] ? 'var(--positive)' : 'var(--tier-magenta)',
-              }}
-            >
-              ● {spark[spark.length - 1] >= spark[0] ? 'up' : 'down'} 12wk
-            </Mono>
-          )}
-        </div>
-        <div className="mt-1 flex items-baseline gap-2.5">
+        <Lbl>Net P&amp;L</Lbl>
+        <div className="mt-1">
           <Mono
             style={{
               fontSize: 28,
@@ -182,14 +169,6 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
             {isPos ? '+' : ''}
             {usd(detail.net, 0)}
           </Mono>
-          {spark.length > 0 && (
-            <Sparkline
-              pts={spark}
-              color={isPos ? 'var(--positive)' : 'var(--tier-magenta)'}
-              w={70}
-              h={22}
-            />
-          )}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div>
@@ -224,6 +203,9 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
           </div>
         </div>
       </div>
+
+      {/* Net P&L over time / pulls */}
+      <WalletPnlChart points={pnlSeries} net={detail.net} />
 
       {/* Tier mix */}
       <SectionHead tag="01 · TIER MIX" title="Where they spent" />

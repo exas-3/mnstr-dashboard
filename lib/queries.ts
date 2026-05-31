@@ -1127,6 +1127,95 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
 }
 
 /* ─────────────────────────────────────────────────────────────
+ * Wallet P&L series — cumulative "portfolio net" over the wallet's
+ * lifetime, one point per event, for the chart on /wallets/[addr].
+ *
+ * Portfolio net(t) = realized cash(t) + FMV of cards held(t). Each pull /
+ * sellback / buy is a SINGLE merged event so the curve steps smoothly:
+ *   - pull        Δ = fmv − price            (acquire a card, pay the pack)
+ *   - sellback    Δ = payout − fmv           (give the card back, get paid)
+ *   - marketplace Δ = fmv − price            (acquire a slab, pay for it)
+ * Merging the two legs matters: a sellback's FMV-removal (NFTSoldBack) and its
+ * cash payout settle in different txs seconds apart, so emitting them
+ * separately made the net momentarily crater (remove $9.6k FMV, then add $7.5k
+ * cash) before recovering — a spurious spike. As one event it's just the real
+ * −$2.1k step.
+ *
+ * Any operator↔wallet USDm flow NOT tied to a pull/sellback/buy (deposits,
+ * withdrawals, refunds) is added as a `cash` event so the total still converges
+ * to realized_net + held_fmv + mp_held_fmv = the headline Net P&L. (Wallet↔
+ * wallet transfers never appear here — usdm_flows only mirrors operator legs.)
+ * ───────────────────────────────────────────────────────────── */
+export interface WalletPnlPoint {
+  ts: number;                  // event time, epoch ms (for the time axis)
+  i: number;                   // cumulative pull count at this event (pulls axis)
+  net: number;                 // cumulative portfolio net P&L, USD
+  kind: 'pull' | 'sellback' | 'cash' | 'buy';
+}
+
+export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint[]> {
+  const addr = wallet.toLowerCase();
+  const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy' }>>`
+    -- Pull: acquire a card at its FMV, pay the pack price (one merged step).
+    SELECT pulled_at::text AS t,
+           (COALESCE(fmv_usd, 0) - COALESCE(price_usd, 0))::float8 AS d,
+           'pull'::text AS kind
+    FROM pulls_enriched WHERE wallet = ${addr}
+    UNION ALL
+    -- Sellback: receive the payout, give the card back — booked at the payout
+    -- settlement time so the cash and the FMV-removal land together (no spike).
+    -- Clamp away any bogus 1970 sold_at (a sellback can't precede its pull).
+    SELECT COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at))::text,
+           (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8,
+           'sellback'
+    FROM pulls_enriched pe
+    LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
+    WHERE pe.wallet = ${addr} AND pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
+    UNION ALL
+    -- Marketplace buy: acquire the slab at current FMV, pay the price.
+    SELECT ms.bought_at::text,
+           (COALESCE(cf.fmv, 0) - COALESCE(ms.price_usd, 0))::float8,
+           'buy'
+    FROM marketplace_sales ms
+    JOIN cards c ON c.serial_number = ms.serial_number
+    LEFT JOIN LATERAL (SELECT MAX(p.fmv_usd) AS fmv FROM pulls p WHERE p.card_slug = c.slug) cf ON TRUE
+    WHERE ms.buyer = ${addr}
+    UNION ALL
+    -- Naked operator cash: USDm in/out NOT already accounted for by a pull
+    -- (pack spend, same block), a marketplace buy (same block), or a sellback
+    -- payout (matched tx). These are deposits / withdrawals / refunds.
+    SELECT f.ts::text,
+           (CASE WHEN f.direction = 'in' THEN f.amount_usd ELSE -f.amount_usd END)::float8,
+           'cash'
+    FROM usdm_flows f
+    WHERE f.wallet = ${addr}
+      AND NOT (f.direction = 'out' AND EXISTS (
+        SELECT 1 FROM pulls p WHERE p.wallet = f.wallet AND p.block_number = f.block_number))
+      AND NOT (f.direction = 'out' AND EXISTS (
+        SELECT 1 FROM marketplace_sales ms WHERE ms.buyer = f.wallet AND ms.block_number = f.block_number))
+      AND NOT (f.direction = 'in' AND EXISTS (
+        SELECT 1 FROM sellbacks s WHERE s.player = f.wallet AND s.payout_tx_hash = f.tx_hash))
+    ORDER BY t ASC
+  `;
+  if (rows.length === 0) return [];
+
+  const series: WalletPnlPoint[] = [];
+  let net = 0;
+  let pulls = 0;
+  for (const r of rows) {
+    if (r.kind === 'pull') pulls++;
+    net += r.d;
+    series.push({
+      ts: Date.parse(r.t),
+      i: pulls,
+      net: Math.round(net * 100) / 100,
+      kind: r.kind,
+    });
+  }
+  return series;
+}
+
+/* ─────────────────────────────────────────────────────────────
  * Wallet pull rhythm — 12 weekly buckets with a big-hit flag.
  * ───────────────────────────────────────────────────────────── */
 
