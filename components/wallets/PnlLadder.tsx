@@ -145,9 +145,9 @@ export default function PnlLadder({ rows, sort }: { rows: LadderRow[]; sort: Wal
               opacity={Math.max(0.4, 0.95 - i * (0.55 / Math.max(1, sorted.length)))}
             >
               {showTooltips && (
-                <title>
-                  {r.handle ?? r.wallet}: {fmtFull(r.value, asUsd)}
-                </title>
+                /* Single string child — adjacent {expr} text nodes in an SVG
+                   <title> hydrate-mismatch (browser merges the text). */
+                <title>{`${r.handle ?? r.wallet}: ${fmtFull(r.value, asUsd)}`}</title>
               )}
             </rect>
           );

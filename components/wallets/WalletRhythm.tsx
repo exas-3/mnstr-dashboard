@@ -66,9 +66,9 @@ export default function WalletRhythm({
                 fill={b.bigHit ? 'var(--accent)' : 'var(--fg-3)'}
                 opacity={b.pulls > 0 ? 0.85 : 0.2}
               >
-                <title>
-                  {b.bucket}: {b.pulls} pulls{b.bigHit ? ' (big hit)' : ''}
-                </title>
+                {/* Single string child — adjacent {expr} text nodes inside an
+                    SVG <title> hydrate-mismatch (browser merges the text). */}
+                <title>{`${b.bucket}: ${b.pulls} pulls${b.bigHit ? ' (big hit)' : ''}`}</title>
               </rect>
               {b.bigHit && (
                 <text
