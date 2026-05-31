@@ -69,9 +69,11 @@ function fmtDateTime(ms: number): string {
   });
 }
 
-interface Candle { k: number; label: string; ts: number; i: number; open: number; high: number; low: number; close: number; range: [number, number]; pulls: string[]; buys: string[]; sells: string[]; }
-const MKT_COLOR = 'var(--tier-cyan)';   // marketplace buys
-const SELL_COLOR = 'var(--accent)';     // sellbacks
+interface CardRef { title: string; slug: string | null }
+interface Candle { k: number; label: string; ts: number; i: number; open: number; high: number; low: number; close: number; range: [number, number]; pulls: CardRef[]; buys: CardRef[]; sells: CardRef[]; }
+const MKT_COLOR = 'var(--tier-blue)';   // marketplace buys (blue)
+const SELL_COLOR = 'var(--negative)';   // sellbacks (red)
+const PULL_COLOR = 'var(--accent)';     // pulls (yellow)
 
 /* Custom candlestick shape: Recharts sizes the underlying floating bar from the
  * `range` = [low, high] value, so `y`/`height` give us the pixel mapping for
@@ -100,20 +102,33 @@ function CandleShape(props: { x?: number; y?: number; width?: number; height?: n
   );
 }
 
-interface LinePoint { net: number; ts: number; i: number; kind?: string; card?: string | null }
+interface LinePoint { net: number; ts: number; i: number; kind?: string; card?: string | null; cardSlug?: string | null }
 const CARD_VERB: Record<string, string> = { pull: 'pulled', sellback: 'sold', buy: 'bought' };
 
-/* One card per line, under a small label, for the candle tooltip's range. */
-function CardList({ label, cards, color, max = 4 }: { label: string; cards: string[]; color: string; max?: number }) {
+/* Candle-tooltip section: one card per line, but if it's a single card show
+ * its picture instead of the title. */
+function CardList({ label, cards, color, max = 4 }: { label: string; cards: CardRef[]; color: string; max?: number }) {
   if (cards.length === 0) return null;
+  const single = cards.length === 1 && cards[0].slug ? cards[0] : null;
   return (
     <div style={{ marginTop: 3 }}>
-      <div style={{ fontSize: 8, color, letterSpacing: '0.12em', marginBottom: 1 }}>{label}</div>
-      {cards.slice(0, max).map((c, idx) => (
-        <div key={idx} style={{ fontSize: 9, color: 'var(--fg)', whiteSpace: 'normal', lineHeight: 1.3 }}>· {c}</div>
-      ))}
-      {cards.length > max && (
-        <div style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>+{cards.length - max} more</div>
+      <div style={{ fontSize: 8, color, letterSpacing: '0.12em', marginBottom: single ? 2 : 1 }}>{label}</div>
+      {single ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/img/${single.slug}`}
+          alt={single.title}
+          style={{ width: 160, height: 'auto', display: 'block', border: '1px solid var(--line-soft)' }}
+        />
+      ) : (
+        <>
+          {cards.slice(0, max).map((c, idx) => (
+            <div key={idx} style={{ fontSize: 9, color: 'var(--fg)', whiteSpace: 'normal', lineHeight: 1.3 }}>· {c.title}</div>
+          ))}
+          {cards.length > max && (
+            <div style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>+{cards.length - max} more</div>
+          )}
+        </>
       )}
     </div>
   );
@@ -134,7 +149,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
         </div>
         {(p.pulls.length > 0 || p.buys.length > 0 || p.sells.length > 0) && (
           <div style={{ maxWidth: 240 }}>
-            <CardList label="PULLED" cards={p.pulls} color="var(--fg-3)" />
+            <CardList label="PULLED" cards={p.pulls} color={PULL_COLOR} />
             <CardList label="BOUGHT · MARKET" cards={p.buys} color={MKT_COLOR} />
             <CardList label="SOLD" cards={p.sells} color={SELL_COLOR} />
           </div>
@@ -151,28 +166,35 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
         {pos ? '+' : '-'}${Math.abs(p.net).toLocaleString('en-US', { maximumFractionDigits: 0 })}
       </div>
       {p.card && p.kind && CARD_VERB[p.kind] && (
-        <div style={{ fontSize: 9.5, color: 'var(--fg)', marginTop: 3, maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.3 }}>
-          <span style={{ color: p.kind === 'sellback' ? SELL_COLOR : p.kind === 'buy' ? MKT_COLOR : 'var(--fg-3)' }}>{CARD_VERB[p.kind]}</span> {p.card}
-        </div>
+        <CardList
+          label={CARD_VERB[p.kind].toUpperCase()}
+          cards={[{ title: p.card, slug: p.cardSlug ?? null }]}
+          color={p.kind === 'sellback' ? SELL_COLOR : p.kind === 'buy' ? MKT_COLOR : PULL_COLOR}
+        />
       )}
       <div style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2 }}>{kindLabel}{fmtDateTime(p.ts)} · #{p.i}</div>
     </div>
   );
 }
 
-/* Mark notable events on the line: marketplace buys (cyan square, always — they
- * are rare) and sellbacks (accent circle, only when `showSells` so a wallet
- * that sells thousands of cards doesn't bury the line; zoom in to reveal them).
- * Pulls aren't marked. The tooltip still names the card for any point. */
-function makeEventDot(showSells: boolean) {
+/* Mark events on the line by colour: pulls (yellow), sellbacks (red),
+ * marketplace buys (blue). Buys are rare so they always show; pulls and
+ * sellbacks are density-gated (`showPulls`/`showSells`) so a wallet with
+ * thousands of them doesn't bury the line — zoom in to reveal them. The
+ * tooltip still names the card for any point. */
+function makeEventDot(showPulls: boolean, showSells: boolean) {
   return function EventDot(props: { cx?: number; cy?: number; index?: number; payload?: LinePoint }) {
     const { cx, cy, index, payload } = props;
     if (cx == null || cy == null) return <g key={`d${index}`} />;
-    if (payload?.kind === 'buy') {
-      return <rect key={`d${index}`} x={cx - 2.6} y={cy - 2.6} width={5.2} height={5.2} fill={MKT_COLOR} stroke="var(--bg)" strokeWidth={0.7} />;
+    const kind = payload?.kind;
+    if (kind === 'buy') {
+      return <circle key={`d${index}`} cx={cx} cy={cy} r={2.6} fill={MKT_COLOR} stroke="var(--bg)" strokeWidth={0.7} />;
     }
-    if (showSells && payload?.kind === 'sellback') {
+    if (kind === 'sellback' && showSells) {
       return <circle key={`d${index}`} cx={cx} cy={cy} r={2.6} fill={SELL_COLOR} stroke="var(--bg)" strokeWidth={0.7} />;
+    }
+    if (kind === 'pull' && showPulls) {
+      return <circle key={`d${index}`} cx={cx} cy={cy} r={2.2} fill={PULL_COLOR} stroke="var(--bg)" strokeWidth={0.6} />;
     }
     return <g key={`d${index}`} />;
   };
@@ -286,14 +308,15 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
     const last = view[view.length - 1];
     const hi = xOf(last);
     const enterNet = vS > 0 ? points[vS - 1].net : 0; // net entering the window
-    const cardOf = (p: WalletPnlPoint, into: { pulls: string[]; buys: string[]; sells: string[] }) => {
+    const cardOf = (p: WalletPnlPoint, into: { pulls: CardRef[]; buys: CardRef[]; sells: CardRef[] }) => {
       if (!p.card) return;
-      if (p.kind === 'sellback') into.sells.push(p.card);
-      else if (p.kind === 'buy') into.buys.push(p.card);
-      else if (p.kind === 'pull') into.pulls.push(p.card);
+      const ref: CardRef = { title: p.card, slug: p.cardSlug ?? null };
+      if (p.kind === 'sellback') into.sells.push(ref);
+      else if (p.kind === 'buy') into.buys.push(ref);
+      else if (p.kind === 'pull') into.pulls.push(ref);
     };
     if (hi <= lo) {
-      const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
+      const acc = { pulls: [] as CardRef[], buys: [] as CardRef[], sells: [] as CardRef[] };
       cardOf(last, acc);
       const o = enterNet, c = last.net;
       return [{ k: 0, label: mode === 'time' ? fmtAxis(last.ts) : `#${last.i}`, ts: last.ts, i: last.i, open: o, high: Math.max(o, c), low: Math.min(o, c), close: c, range: [Math.min(o, c), Math.max(o, c)], ...acc }];
@@ -305,7 +328,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
       const edge = lo + step * (b + 1);
       const open = prevClose;
       let high = open, low = open, close = open, consumed = 0;
-      const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
+      const acc = { pulls: [] as CardRef[], buys: [] as CardRef[], sells: [] as CardRef[] };
       while (pi < view.length && xOf(view[pi]) <= edge) {
         const v = view[pi].net;
         if (v > high) high = v;
@@ -400,16 +423,18 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
   const onBrush = (r: { startIndex?: number; endIndex?: number }) =>
     setWin({ startIndex: r.startIndex, endIndex: r.endIndex });
 
-  // Sellback dots only when not too many are in view (zoom reveals them);
-  // marketplace buys always show. Keeps the line readable on heavy sellers.
+  // Pull/sellback dots only when not too many are in view (zoom reveals them);
+  // marketplace buys always show. Keeps the line readable on heavy traders.
   const eventDot = useMemo(() => {
     const s = win.startIndex ?? 0;
     const e = win.endIndex ?? points.length - 1;
-    let sells = 0;
+    let pulls = 0, sells = 0;
     for (let k = Math.max(0, s); k <= Math.min(points.length - 1, e); k++) {
-      if (points[k].kind === 'sellback') sells++;
+      const kind = points[k].kind;
+      if (kind === 'pull') pulls++;
+      else if (kind === 'sellback') sells++;
     }
-    return makeEventDot(sells <= 150);
+    return makeEventDot(pulls <= 150, sells <= 150);
   }, [points, win]);
 
   // Fraction (from top) of the visible window where net crosses $0, so the

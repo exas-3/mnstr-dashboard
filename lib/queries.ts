@@ -1200,16 +1200,18 @@ export interface WalletPnlPoint {
   net: number;                 // cumulative portfolio net P&L, USD
   kind: 'pull' | 'sellback' | 'cash' | 'buy';
   card?: string | null;        // card title for pull / sellback / buy events
+  cardSlug?: string | null;    // card slug (for /img/{slug} in the tooltip)
 }
 
 export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint[]> {
   const addr = wallet.toLowerCase();
-  const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy'; card: string | null }>>`
+  const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy'; card: string | null; card_slug: string | null }>>`
     -- Pull: acquire a card at its FMV, pay the pack price (one merged step).
     SELECT pe.pulled_at::text AS t,
            (COALESCE(pe.fmv_usd, 0) - COALESCE(pe.price_usd, 0))::float8 AS d,
            'pull'::text AS kind,
-           COALESCE(c.title, pe.card_slug) AS card
+           COALESCE(c.title, pe.card_slug) AS card,
+           pe.card_slug AS card_slug
     FROM pulls_enriched pe LEFT JOIN cards c ON c.slug = pe.card_slug
     WHERE pe.wallet = ${addr}
     UNION ALL
@@ -1219,7 +1221,8 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
     SELECT COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at))::text,
            (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8,
            'sellback',
-           COALESCE(c.title, pe.card_slug)
+           COALESCE(c.title, pe.card_slug),
+           pe.card_slug
     FROM pulls_enriched pe
     LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
     LEFT JOIN cards c ON c.slug = pe.card_slug
@@ -1229,7 +1232,8 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
     SELECT ms.bought_at::text,
            (COALESCE(cf.fmv, 0) - COALESCE(ms.price_usd, 0))::float8,
            'buy',
-           COALESCE(c.title, c.slug)
+           COALESCE(c.title, c.slug),
+           c.slug
     FROM marketplace_sales ms
     JOIN cards c ON c.serial_number = ms.serial_number
     LEFT JOIN LATERAL (SELECT MAX(p.fmv_usd) AS fmv FROM pulls p WHERE p.card_slug = c.slug) cf ON TRUE
@@ -1241,6 +1245,7 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
     SELECT f.ts::text,
            (CASE WHEN f.direction = 'in' THEN f.amount_usd ELSE -f.amount_usd END)::float8,
            'cash',
+           NULL::text,
            NULL::text
     FROM usdm_flows f
     WHERE f.wallet = ${addr}
@@ -1266,6 +1271,7 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
       net: Math.round(net * 100) / 100,
       kind: r.kind,
       card: r.card,
+      cardSlug: r.card_slug,
     });
   }
   return series;
