@@ -62,7 +62,9 @@ function fmtDateTime(ms: number): string {
   });
 }
 
-interface Candle { k: number; label: string; ts: number; i: number; open: number; high: number; low: number; close: number; range: [number, number]; }
+interface Candle { k: number; label: string; ts: number; i: number; open: number; high: number; low: number; close: number; range: [number, number]; pulls: string[]; buys: string[]; sells: string[]; }
+const MKT_COLOR = 'var(--tier-cyan)';   // marketplace buys
+const SELL_COLOR = 'var(--accent)';     // sellbacks
 
 /* Custom candlestick shape: Recharts sizes the underlying floating bar from the
  * `range` = [low, high] value, so `y`/`height` give us the pixel mapping for
@@ -91,7 +93,24 @@ function CandleShape(props: { x?: number; y?: number; width?: number; height?: n
   );
 }
 
-interface LinePoint { net: number; ts: number; i: number; kind?: string }
+interface LinePoint { net: number; ts: number; i: number; kind?: string; card?: string | null }
+const CARD_VERB: Record<string, string> = { pull: 'pulled', sellback: 'sold', buy: 'bought' };
+
+/* One card per line, under a small label, for the candle tooltip's range. */
+function CardList({ label, cards, color, max = 4 }: { label: string; cards: string[]; color: string; max?: number }) {
+  if (cards.length === 0) return null;
+  return (
+    <div style={{ marginTop: 3 }}>
+      <div style={{ fontSize: 8, color, letterSpacing: '0.12em', marginBottom: 1 }}>{label}</div>
+      {cards.slice(0, max).map((c, idx) => (
+        <div key={idx} style={{ fontSize: 9, color: 'var(--fg)', whiteSpace: 'normal', lineHeight: 1.3 }}>· {c}</div>
+      ))}
+      {cards.length > max && (
+        <div style={{ fontSize: 8.5, color: 'var(--fg-4)' }}>+{cards.length - max} more</div>
+      )}
+    </div>
+  );
+}
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: LinePoint | Candle }> }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -106,7 +125,14 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
         <div style={{ fontSize: 8.5, color: 'var(--fg-3)', marginTop: 2 }}>
           O {abbrUsd(p.open)} · H {abbrUsd(p.high)} · L {abbrUsd(p.low)}
         </div>
-        <div style={{ fontSize: 8.5, color: 'var(--fg-4)', marginTop: 1 }}>{fmtDate(p.ts)} · pull #{p.i}</div>
+        {(p.pulls.length > 0 || p.buys.length > 0 || p.sells.length > 0) && (
+          <div style={{ maxWidth: 240 }}>
+            <CardList label="PULLED" cards={p.pulls} color="var(--fg-3)" />
+            <CardList label="BOUGHT · MARKET" cards={p.buys} color={MKT_COLOR} />
+            <CardList label="SOLD" cards={p.sells} color={SELL_COLOR} />
+          </div>
+        )}
+        <div style={{ fontSize: 8.5, color: 'var(--fg-4)', marginTop: 2 }}>{fmtDate(p.ts)} · #{p.i}</div>
       </div>
     );
   }
@@ -117,9 +143,32 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
       <div style={{ fontSize: 13, color: pos ? POS : NEG }}>
         {pos ? '+' : '-'}${Math.abs(p.net).toLocaleString('en-US', { maximumFractionDigits: 0 })}
       </div>
-      <div style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2 }}>{kindLabel}{fmtDateTime(p.ts)} · pull #{p.i}</div>
+      {p.card && p.kind && CARD_VERB[p.kind] && (
+        <div style={{ fontSize: 9.5, color: 'var(--fg)', marginTop: 3, maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.3 }}>
+          <span style={{ color: p.kind === 'sellback' ? SELL_COLOR : p.kind === 'buy' ? MKT_COLOR : 'var(--fg-3)' }}>{CARD_VERB[p.kind]}</span> {p.card}
+        </div>
+      )}
+      <div style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2 }}>{kindLabel}{fmtDateTime(p.ts)} · #{p.i}</div>
     </div>
   );
+}
+
+/* Mark notable events on the line: marketplace buys (cyan square, always — they
+ * are rare) and sellbacks (accent circle, only when `showSells` so a wallet
+ * that sells thousands of cards doesn't bury the line; zoom in to reveal them).
+ * Pulls aren't marked. The tooltip still names the card for any point. */
+function makeEventDot(showSells: boolean) {
+  return function EventDot(props: { cx?: number; cy?: number; index?: number; payload?: LinePoint }) {
+    const { cx, cy, index, payload } = props;
+    if (cx == null || cy == null) return <g key={`d${index}`} />;
+    if (payload?.kind === 'buy') {
+      return <rect key={`d${index}`} x={cx - 2.6} y={cy - 2.6} width={5.2} height={5.2} fill={MKT_COLOR} stroke="var(--bg)" strokeWidth={0.7} />;
+    }
+    if (showSells && payload?.kind === 'sellback') {
+      return <circle key={`d${index}`} cx={cx} cy={cy} r={2.6} fill={SELL_COLOR} stroke="var(--bg)" strokeWidth={0.7} />;
+    }
+    return <g key={`d${index}`} />;
+  };
 }
 
 /* Two-option segmented control, matching the design system. */
@@ -198,9 +247,17 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
     const lo = mode === 'time' ? (firstPullTs ?? xOf(points[0])) : 1;
     const last = points[points.length - 1];
     const hi = xOf(last);
+    const cardOf = (p: WalletPnlPoint, into: { pulls: string[]; buys: string[]; sells: string[] }) => {
+      if (!p.card) return;
+      if (p.kind === 'sellback') into.sells.push(p.card);
+      else if (p.kind === 'buy') into.buys.push(p.card);
+      else if (p.kind === 'pull') into.pulls.push(p.card);
+    };
     if (hi <= lo) {
       const v = last.net;
-      return [{ k: 0, label: mode === 'time' ? fmtDate(last.ts) : `#${last.i}`, ts: last.ts, i: last.i, open: 0, high: Math.max(0, v), low: Math.min(0, v), close: v, range: [Math.min(0, v), Math.max(0, v)] }];
+      const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
+      cardOf(last, acc);
+      return [{ k: 0, label: mode === 'time' ? fmtDate(last.ts) : `#${last.i}`, ts: last.ts, i: last.i, open: 0, high: Math.max(0, v), low: Math.min(0, v), close: v, range: [Math.min(0, v), Math.max(0, v)], ...acc }];
     }
     const step = (hi - lo) / CANDLE_BUCKETS;
     const out: Candle[] = [];
@@ -209,11 +266,13 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
       const edge = lo + step * (b + 1);
       const open = prevClose;
       let high = open, low = open, close = open;
+      const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
       while (pi < points.length && xOf(points[pi]) <= edge) {
         const v = points[pi].net;
         if (v > high) high = v;
         if (v < low) low = v;
         close = v;
+        cardOf(points[pi], acc);
         lastTs = points[pi].ts; lastI = points[pi].i; pi++;
       }
       const center = Math.round(lo + step * (b + 0.5));
@@ -222,7 +281,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
         label: mode === 'time' ? fmtDate(center) : `#${center}`,
         ts: mode === 'time' ? center : lastTs,
         i: mode === 'time' ? lastI : center,
-        open, high, low, close, range: [low, high],
+        open, high, low, close, range: [low, high], ...acc,
       });
       prevClose = close;
     }
@@ -238,6 +297,18 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
 
   const onBrush = (r: { startIndex?: number; endIndex?: number }) =>
     setWin({ startIndex: r.startIndex, endIndex: r.endIndex });
+
+  // Sellback dots only when not too many are in view (zoom reveals them);
+  // marketplace buys always show. Keeps the line readable on heavy sellers.
+  const eventDot = useMemo(() => {
+    const s = win.startIndex ?? 0;
+    const e = win.endIndex ?? points.length - 1;
+    let sells = 0;
+    for (let k = Math.max(0, s); k <= Math.min(points.length - 1, e); k++) {
+      if (points[k].kind === 'sellback') sells++;
+    }
+    return makeEventDot(sells <= 150);
+  }, [points, win]);
 
   // Fraction (from top) of the visible window where net crosses $0, so the
   // line fill/stroke can be green above water and the loss colour below it.
@@ -284,7 +355,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
           <Seg
             value={mode}
             onChange={v => setMode(v as XMode)}
-            options={[{ k: 'time', label: 'TIME' }, { k: 'pulls', label: 'PULLS' }]}
+            options={[{ k: 'time', label: 'TIME' }, { k: 'pulls', label: 'PULLS&SELLS' }]}
           />
         </div>
       </div>
@@ -332,7 +403,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
                 stroke="url(#pnl-stroke)"
                 strokeWidth={1.5}
                 fill="url(#pnl-fill)"
-                dot={false}
+                dot={eventDot}
                 activeDot={{ r: 3, fill: color, stroke: 'var(--bg)' }}
                 isAnimationActive={false}
               />

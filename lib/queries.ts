@@ -824,10 +824,12 @@ async function sparkForWallets(
   wallets: string[],
   sort: WalletSort,
 ): Promise<Map<string, number[]>> {
-  // 'pulls' sparks come from pulls (one count per pull). 'spend' and 'pnl'
-  // come from usdm_flows so the cumulative line tracks real on-chain USDm.
-  // Day buckets use pulled_at for 'pulls' (one bar per day a pull happened)
-  // and ts (transfer timestamp) for 'spend' / 'pnl' (one bar per cash-flow day).
+  // 'pnl' tracks the portfolio-net trajectory (matches the wallet-detail
+  // chart's PULLS view: one step per pull/sellback/buy, ends at the headline
+  // net), so the leaderboard spark and the big chart agree.
+  if (sort === 'pnl') return pnlSparkForWallets(wallets);
+
+  // 'pulls' / 'spend' stay as cumulative daily lines.
   const rows = sort === 'pulls'
     ? await sql<Array<{ wallet: string; day: string; delta: number }>>`
         SELECT
@@ -839,23 +841,11 @@ async function sparkForWallets(
         GROUP BY wallet, day
         ORDER BY wallet, day
       `
-    : sort === 'spend'
-    ? await sql<Array<{ wallet: string; day: string; delta: number }>>`
+    : await sql<Array<{ wallet: string; day: string; delta: number }>>`
         SELECT
           wallet,
           to_char(date_trunc('day', ts), 'YYYY-MM-DD')                            AS day,
           COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0)::float    AS delta
-        FROM usdm_flows
-        WHERE wallet IN ${sql(wallets)}
-        GROUP BY wallet, day
-        ORDER BY wallet, day
-      `
-    : await sql<Array<{ wallet: string; day: string; delta: number }>>`
-        SELECT
-          wallet,
-          to_char(date_trunc('day', ts), 'YYYY-MM-DD')                                                          AS day,
-          (COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'in'),  0)
-            - COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0))::float                             AS delta
         FROM usdm_flows
         WHERE wallet IN ${sql(wallets)}
         GROUP BY wallet, day
@@ -873,6 +863,64 @@ async function sparkForWallets(
     runningSum += Number(r.delta);
     map.get(r.wallet)!.push(runningSum);
   }
+  return map;
+}
+
+const SPARK_POINTS = 28;
+function downsampleSpark(arr: number[], n = SPARK_POINTS): number[] {
+  if (arr.length <= n) return arr;
+  const out: number[] = [];
+  for (let k = 0; k < n; k++) out.push(arr[Math.round((k / (n - 1)) * (arr.length - 1))]);
+  return out;
+}
+
+/* Portfolio-net spark per wallet — same merged event model as
+ * getWalletPnlSeries (pull = fmv−price, sellback = payout−fmv, marketplace
+ * buy = fmv−price, plus naked operator cash), in event order, downsampled.
+ * Each spark therefore ends at the wallet's headline Net P&L. */
+async function pnlSparkForWallets(wallets: string[]): Promise<Map<string, number[]>> {
+  const rows = await sql<Array<{ wallet: string; d: number }>>`
+    SELECT wallet, d FROM (
+      SELECT wallet, pulled_at AS t,
+             (COALESCE(fmv_usd, 0) - COALESCE(price_usd, 0))::float8 AS d
+      FROM pulls_enriched WHERE wallet IN ${sql(wallets)}
+      UNION ALL
+      SELECT pe.wallet, COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)),
+             (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8
+      FROM pulls_enriched pe
+      LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
+      WHERE pe.wallet IN ${sql(wallets)} AND pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
+      UNION ALL
+      SELECT ms.buyer, ms.bought_at,
+             (COALESCE(cf.fmv, 0) - COALESCE(ms.price_usd, 0))::float8
+      FROM marketplace_sales ms
+      JOIN cards c ON c.serial_number = ms.serial_number
+      LEFT JOIN LATERAL (SELECT MAX(p.fmv_usd) AS fmv FROM pulls p WHERE p.card_slug = c.slug) cf ON TRUE
+      WHERE ms.buyer IN ${sql(wallets)}
+      UNION ALL
+      SELECT f.wallet, f.ts,
+             (CASE WHEN f.direction = 'in' THEN f.amount_usd ELSE -f.amount_usd END)::float8
+      FROM usdm_flows f
+      WHERE f.wallet IN ${sql(wallets)}
+        AND NOT (f.direction = 'out' AND EXISTS (
+          SELECT 1 FROM pulls p WHERE p.wallet = f.wallet AND p.block_number = f.block_number))
+        AND NOT (f.direction = 'out' AND EXISTS (
+          SELECT 1 FROM marketplace_sales ms WHERE ms.buyer = f.wallet AND ms.block_number = f.block_number))
+        AND NOT (f.direction = 'in' AND EXISTS (
+          SELECT 1 FROM sellbacks s WHERE s.player = f.wallet AND s.payout_tx_hash = f.tx_hash))
+    ) ev ORDER BY wallet, t
+  `;
+  const full = new Map<string, number[]>();
+  for (const w of wallets) full.set(w, []);
+  let run = 0;
+  let cur: string | null = null;
+  for (const r of rows) {
+    if (r.wallet !== cur) { run = 0; cur = r.wallet; }
+    run += Number(r.d);
+    full.get(r.wallet)!.push(Math.round(run * 100) / 100);
+  }
+  const map = new Map<string, number[]>();
+  for (const [w, arr] of full) map.set(w, downsampleSpark(arr));
   return map;
 }
 
@@ -1148,34 +1196,40 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
  * ───────────────────────────────────────────────────────────── */
 export interface WalletPnlPoint {
   ts: number;                  // event time, epoch ms (for the time axis)
-  i: number;                   // cumulative pull count at this event (pulls axis)
+  i: number;                   // cumulative pull+sell count (the pulls&sells axis)
   net: number;                 // cumulative portfolio net P&L, USD
   kind: 'pull' | 'sellback' | 'cash' | 'buy';
+  card?: string | null;        // card title for pull / sellback / buy events
 }
 
 export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint[]> {
   const addr = wallet.toLowerCase();
-  const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy' }>>`
+  const rows = await sql<Array<{ t: string; d: number; kind: 'pull' | 'sellback' | 'cash' | 'buy'; card: string | null }>>`
     -- Pull: acquire a card at its FMV, pay the pack price (one merged step).
-    SELECT pulled_at::text AS t,
-           (COALESCE(fmv_usd, 0) - COALESCE(price_usd, 0))::float8 AS d,
-           'pull'::text AS kind
-    FROM pulls_enriched WHERE wallet = ${addr}
+    SELECT pe.pulled_at::text AS t,
+           (COALESCE(pe.fmv_usd, 0) - COALESCE(pe.price_usd, 0))::float8 AS d,
+           'pull'::text AS kind,
+           COALESCE(c.title, pe.card_slug) AS card
+    FROM pulls_enriched pe LEFT JOIN cards c ON c.slug = pe.card_slug
+    WHERE pe.wallet = ${addr}
     UNION ALL
     -- Sellback: receive the payout, give the card back — booked at the payout
     -- settlement time so the cash and the FMV-removal land together (no spike).
     -- Clamp away any bogus 1970 sold_at (a sellback can't precede its pull).
     SELECT COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at))::text,
            (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8,
-           'sellback'
+           'sellback',
+           COALESCE(c.title, pe.card_slug)
     FROM pulls_enriched pe
     LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
+    LEFT JOIN cards c ON c.slug = pe.card_slug
     WHERE pe.wallet = ${addr} AND pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
     UNION ALL
     -- Marketplace buy: acquire the slab at current FMV, pay the price.
     SELECT ms.bought_at::text,
            (COALESCE(cf.fmv, 0) - COALESCE(ms.price_usd, 0))::float8,
-           'buy'
+           'buy',
+           COALESCE(c.title, c.slug)
     FROM marketplace_sales ms
     JOIN cards c ON c.serial_number = ms.serial_number
     LEFT JOIN LATERAL (SELECT MAX(p.fmv_usd) AS fmv FROM pulls p WHERE p.card_slug = c.slug) cf ON TRUE
@@ -1186,7 +1240,8 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
     -- payout (matched tx). These are deposits / withdrawals / refunds.
     SELECT f.ts::text,
            (CASE WHEN f.direction = 'in' THEN f.amount_usd ELSE -f.amount_usd END)::float8,
-           'cash'
+           'cash',
+           NULL::text
     FROM usdm_flows f
     WHERE f.wallet = ${addr}
       AND NOT (f.direction = 'out' AND EXISTS (
@@ -1201,15 +1256,16 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
 
   const series: WalletPnlPoint[] = [];
   let net = 0;
-  let pulls = 0;
+  let seq = 0; // pulls + sells + buys (card events); cash flows don't advance it
   for (const r of rows) {
-    if (r.kind === 'pull') pulls++;
+    if (r.kind !== 'cash') seq++;
     net += r.d;
     series.push({
       ts: Date.parse(r.t),
-      i: pulls,
+      i: seq,
       net: Math.round(net * 100) / 100,
       kind: r.kind,
+      card: r.card,
     });
   }
   return series;
