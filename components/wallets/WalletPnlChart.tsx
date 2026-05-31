@@ -15,7 +15,7 @@
  * Mounted-gated: Recharts needs the DOM, so we render a fixed-height placeholder
  * during SSR/hydration and swap in the chart on mount. */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -35,7 +35,9 @@ import type { WalletPnlPoint } from '@/lib/queries';
 type XMode = 'time' | 'pulls';
 type ChartType = 'line' | 'candle';
 const HEIGHT = 256; // includes the brush strip
-const CANDLE_BUCKETS = 40;
+const CANDLE_BUCKETS = 40;     // target candles on screen (re-aggregated on zoom);
+                               // also the zoom-in floor — below this it's one
+                               // candle per event, so zooming in is disabled.
 const POS = 'var(--positive)';
 const NEG = 'var(--tier-magenta)';
 
@@ -55,6 +57,11 @@ function abbrUsd(n: number): string {
 }
 function fmtDate(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+// Compact date + 24h time for the TIME-mode axis (e.g. "May 27 14:32").
+function fmtAxis(ms: number): string {
+  const t = new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${fmtDate(ms)} ${t}`;
 }
 function fmtDateTime(ms: number): string {
   return new Date(ms).toLocaleString(undefined, {
@@ -132,7 +139,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
             <CardList label="SOLD" cards={p.sells} color={SELL_COLOR} />
           </div>
         )}
-        <div style={{ fontSize: 8.5, color: 'var(--fg-4)', marginTop: 2 }}>{fmtDate(p.ts)} · #{p.i}</div>
+        <div style={{ fontSize: 8.5, color: 'var(--fg-4)', marginTop: 2 }}>{fmtAxis(p.ts)} · #{p.i}</div>
       </div>
     );
   }
@@ -207,6 +214,25 @@ function Seg({ value, options, onChange }: {
   );
 }
 
+function ZoomBtn({ label, onClick, title, disabled }: { label: string; onClick: () => void; title?: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      style={{
+        width: 22, height: 18, fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1,
+        color: disabled ? 'var(--fg-4)' : 'var(--fg-2)', background: 'var(--bg)',
+        border: '1px solid var(--line-soft)', cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint[]; net: number }) {
   const [mode, setMode] = useState<XMode>('pulls');
   const [chartType, setChartType] = useState<ChartType>('candle');
@@ -214,13 +240,19 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
   // Brush (zoom/scroll) window, as data indices. Reset when the data identity
   // changes (toggling axis or chart type), since indices no longer line up.
   const [win, setWin] = useState<{ startIndex?: number; endIndex?: number }>({});
+  // Candle zoom: a window over the EVENT (point) indices. candleData re-buckets
+  // the windowed events into ~CANDLE_BUCKETS, so zooming reveals finer candles
+  // (always ~40 on screen) rather than just showing fewer of fixed buckets.
+  // null = full range.
+  const [cview, setCview] = useState<{ s: number; e: number } | null>(null);
+  const candleBoxRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; s: number; e: number; moved: boolean } | null>(null);
   useEffect(() => setMounted(true), []);
-  useEffect(() => setWin({}), [mode, chartType]);
+  useEffect(() => { setWin({}); setCview(null); }, [mode, chartType, points]);
 
   const pos = net >= 0;
   const color = pos ? POS : NEG;
   const xKey = mode === 'time' ? 'ts' : 'i';
-  const firstPullTs = points.find(p => p.kind === 'pull')?.ts ?? points[0]?.ts;
 
   // Explicit, deduped ticks across the *visible* (brushed) window: many events
   // share an X value, so letting Recharts derive ticks produces duplicate tick
@@ -238,15 +270,22 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
     return [...new Set(Array.from({ length: N }, (_, k) => Math.round(lo + step * k)))];
   }, [points, mode, win]);
 
-  // OHLC candles: bucket the running total into ~40 periods. Open = prior
-  // close (so candles connect); high/low = net range in the period; close =
-  // net at period end. Empty periods carry the value forward (flat doji).
+  // OHLC candles over the (zoomed) event window. Open = prior close (candles
+  // connect); high/low = net range in the bucket; close = net at bucket end.
+  // The window's events are re-bucketed into ~CANDLE_BUCKETS on every zoom, so
+  // the count on screen stays ~40 (until fewer events than buckets remain, then
+  // it's one candle per event). PULLS&SELLS skips empty buckets.
   const candleData = useMemo<Candle[]>(() => {
     if (chartType !== 'candle' || points.length === 0) return [];
+    const vS = cview ? cview.s : 0;
+    const vE = cview ? cview.e : points.length - 1;
+    const view = points.slice(vS, vE + 1);
+    if (view.length === 0) return [];
     const xOf = (p: WalletPnlPoint) => (mode === 'time' ? p.ts : p.i);
-    const lo = mode === 'time' ? (firstPullTs ?? xOf(points[0])) : 1;
-    const last = points[points.length - 1];
+    const lo = xOf(view[0]);
+    const last = view[view.length - 1];
     const hi = xOf(last);
+    const enterNet = vS > 0 ? points[vS - 1].net : 0; // net entering the window
     const cardOf = (p: WalletPnlPoint, into: { pulls: string[]; buys: string[]; sells: string[] }) => {
       if (!p.card) return;
       if (p.kind === 'sellback') into.sells.push(p.card);
@@ -254,46 +293,109 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
       else if (p.kind === 'pull') into.pulls.push(p.card);
     };
     if (hi <= lo) {
-      const v = last.net;
       const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
       cardOf(last, acc);
-      return [{ k: 0, label: mode === 'time' ? fmtDate(last.ts) : `#${last.i}`, ts: last.ts, i: last.i, open: 0, high: Math.max(0, v), low: Math.min(0, v), close: v, range: [Math.min(0, v), Math.max(0, v)], ...acc }];
+      const o = enterNet, c = last.net;
+      return [{ k: 0, label: mode === 'time' ? fmtAxis(last.ts) : `#${last.i}`, ts: last.ts, i: last.i, open: o, high: Math.max(o, c), low: Math.min(o, c), close: c, range: [Math.min(o, c), Math.max(o, c)], ...acc }];
     }
     const step = (hi - lo) / CANDLE_BUCKETS;
     const out: Candle[] = [];
-    let pi = 0, prevClose = 0, lastTs = points[0].ts, lastI = 0;
+    let pi = 0, prevClose = enterNet, lastTs = view[0].ts, lastI = view[0].i;
     for (let b = 0; b < CANDLE_BUCKETS; b++) {
       const edge = lo + step * (b + 1);
       const open = prevClose;
-      let high = open, low = open, close = open;
+      let high = open, low = open, close = open, consumed = 0;
       const acc = { pulls: [] as string[], buys: [] as string[], sells: [] as string[] };
-      while (pi < points.length && xOf(points[pi]) <= edge) {
-        const v = points[pi].net;
+      while (pi < view.length && xOf(view[pi]) <= edge) {
+        const v = view[pi].net;
         if (v > high) high = v;
         if (v < low) low = v;
         close = v;
-        cardOf(points[pi], acc);
-        lastTs = points[pi].ts; lastI = points[pi].i; pi++;
+        cardOf(view[pi], acc);
+        lastTs = view[pi].ts; lastI = view[pi].i; pi++; consumed++;
       }
+      prevClose = close;
+      if (mode === 'pulls' && consumed === 0) continue;
       const center = Math.round(lo + step * (b + 0.5));
       out.push({
-        k: b,
-        label: mode === 'time' ? fmtDate(center) : `#${center}`,
+        k: out.length,
+        label: mode === 'time' ? fmtAxis(center) : `#${lastI}`,
         ts: mode === 'time' ? center : lastTs,
-        i: mode === 'time' ? lastI : center,
+        i: lastI,
         open, high, low, close, range: [low, high], ...acc,
       });
-      prevClose = close;
     }
     return out;
-  }, [chartType, points, mode, firstPullTs]);
+  }, [chartType, points, mode, cview]);
 
-  // Candle-axis label thinning, window-aware so a zoomed view keeps ~6 labels.
-  const candleInterval = useMemo(() => {
-    const s = win.startIndex ?? 0;
-    const e = win.endIndex ?? Math.max(0, candleData.length - 1);
-    return Math.max(0, Math.floor((e - s + 1) / 6));
-  }, [win, candleData.length]);
+  // Keep ~6 candle-axis labels.
+  const candleInterval = Math.max(0, Math.floor(candleData.length / 6));
+  const candleZoomed = cview !== null;
+  // Events visible now, and whether there's room to zoom in: once the view is
+  // at/under CANDLE_BUCKETS events it's one candle per event, so no finer zoom.
+  const eventsInView = cview ? cview.e - cview.s + 1 : points.length;
+  const zoomable = points.length > CANDLE_BUCKETS;
+  const canZoomIn = zoomable && eventsInView > CANDLE_BUCKETS;
+
+  // Zoom the candle window (count-based) toward a fractional anchor (0..1).
+  const zoomCandles = (factor: number, anchor = 0.5) => {
+    if (factor < 1 && !canZoomIn) return;
+    setCview(prev => {
+      const s = prev ? prev.s : 0;
+      const e = prev ? prev.e : points.length - 1;
+      const count = e - s + 1;
+      const nextCount = Math.max(CANDLE_BUCKETS, Math.min(points.length, Math.round(count * factor)));
+      if (nextCount >= points.length) return null; // fully zoomed out
+      const cursor = s + anchor * (count - 1);
+      let ns = Math.round(cursor - anchor * (nextCount - 1));
+      let ne = ns + nextCount - 1;
+      if (ns < 0) { ns = 0; ne = nextCount - 1; }
+      if (ne > points.length - 1) { ne = points.length - 1; ns = ne - (nextCount - 1); }
+      return { s: Math.max(0, ns), e: ne };
+    });
+  };
+  const plotFrac = (clientX: number) => {
+    const el = candleBoxRef.current;
+    if (!el) return 0.5;
+    const r = el.getBoundingClientRect();
+    const left = r.left + 52, right = r.right - 16; // ~ y-axis + paddings
+    return Math.max(0, Math.min(1, (clientX - left) / Math.max(1, right - left)));
+  };
+
+  // Wheel-to-zoom (non-passive so we can preventDefault page scroll).
+  useEffect(() => {
+    const el = candleBoxRef.current;
+    if (!el || chartType !== 'candle' || points.length <= CANDLE_BUCKETS) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      zoomCandles(ev.deltaY < 0 ? 0.82 : 1.22, plotFrac(ev.clientX));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType, points.length]);
+
+  const onCandlePointerDown = (ev: React.PointerEvent) => {
+    if (chartType !== 'candle') return;
+    dragRef.current = { x: ev.clientX, s: cview ? cview.s : 0, e: cview ? cview.e : points.length - 1, moved: false };
+  };
+  const onCandlePointerMove = (ev: React.PointerEvent) => {
+    const d = dragRef.current;
+    const el = candleBoxRef.current;
+    if (!d || !el) return;
+    const w = el.getBoundingClientRect().width - 68;
+    const size = d.e - d.s;
+    const deltaEvents = Math.round(-((ev.clientX - d.x) / Math.max(1, w)) * size);
+    if (Math.abs(ev.clientX - d.x) > 3) d.moved = true;
+    if (deltaEvents === 0) return;
+    setCview(() => {
+      let ns = d.s + deltaEvents, ne = d.e + deltaEvents;
+      if (ns < 0) { ns = 0; ne = size; }
+      if (ne > points.length - 1) { ne = points.length - 1; ns = ne - size; }
+      return (ns <= 0 && ne >= points.length - 1) ? null : { s: Math.max(0, ns), e: ne };
+    });
+  };
+  const onCandlePointerUp = () => { dragRef.current = null; };
 
   const onBrush = (r: { startIndex?: number; endIndex?: number }) =>
     setWin({ startIndex: r.startIndex, endIndex: r.endIndex });
@@ -360,6 +462,18 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
         </div>
       </div>
 
+      {/* Candle zoom controls (re-aggregates to ~40 candles per view) */}
+      {chartType === 'candle' && zoomable && (
+        <div className="flex items-center justify-end gap-1.5 px-3.5 pt-1.5">
+          <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.1em', marginRight: 2 }}>
+            {candleZoomed ? `${eventsInView.toLocaleString('en-US')} events in view` : 'scroll or drag to zoom'}
+          </Mono>
+          {candleZoomed && <ZoomBtn label="⟲" title="Reset zoom" onClick={() => setCview(null)} />}
+          <ZoomBtn label="−" title="Zoom out" disabled={!candleZoomed} onClick={() => zoomCandles(1.45)} />
+          <ZoomBtn label="+" title="Zoom in" disabled={!canZoomIn} onClick={() => zoomCandles(0.6)} />
+        </div>
+      )}
+
       {/* Chart */}
       <div style={{ height: HEIGHT, padding: '8px 6px 4px' }}>
         {!mounted || points.length === 0 ? (
@@ -392,7 +506,7 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
                 scale={mode === 'time' ? 'time' : 'linear'}
                 ticks={xTicks}
                 interval={0}
-                tickFormatter={(v: number) => (mode === 'time' ? fmtDate(v) : `#${v}`)}
+                tickFormatter={(v: number) => (mode === 'time' ? fmtAxis(v) : `#${v}`)}
                 tick={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--fg-4)' }}
                 stroke="var(--line-soft)"
                 minTickGap={36}
@@ -414,36 +528,36 @@ export default function WalletPnlChart({ points, net }: { points: WalletPnlPoint
                 travellerWidth={8}
                 stroke="var(--line-soft)"
                 fill="var(--bg-3)"
-                tickFormatter={(v: number) => (mode === 'time' ? fmtDate(v) : `#${v}`)}
+                tickFormatter={(v: number) => (mode === 'time' ? fmtAxis(v) : `#${v}`)}
                 onChange={onBrush}
               />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={candleData} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
-              {sharedAxes}
-              <XAxis
-                dataKey="k"
-                type="category"
-                interval={candleInterval}
-                tickFormatter={(v: number) => candleData[v]?.label ?? ''}
-                tick={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--fg-4)' }}
-                stroke="var(--line-soft)"
-              />
-              <Bar dataKey="range" shape={<CandleShape />} isAnimationActive={false} />
-              <Brush
-                key={`brush-candle-${mode}`}
-                dataKey="k"
-                height={18}
-                travellerWidth={8}
-                stroke="var(--line-soft)"
-                fill="var(--bg-3)"
-                tickFormatter={(v: number) => candleData[v]?.label ?? ''}
-                onChange={onBrush}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          <div
+            ref={candleBoxRef}
+            onPointerDown={onCandlePointerDown}
+            onPointerMove={onCandlePointerMove}
+            onPointerUp={onCandlePointerUp}
+            onPointerLeave={onCandlePointerUp}
+            onDoubleClick={() => setCview(null)}
+            style={{ width: '100%', height: '100%', touchAction: 'pan-y', cursor: candleZoomed ? 'grab' : 'crosshair' }}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={candleData} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
+                {sharedAxes}
+                <XAxis
+                  dataKey="k"
+                  type="category"
+                  interval={candleInterval}
+                  tickFormatter={(v: number) => candleData[v]?.label ?? ''}
+                  tick={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--fg-4)' }}
+                  stroke="var(--line-soft)"
+                />
+                <Bar dataKey="range" shape={<CandleShape />} isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
 
