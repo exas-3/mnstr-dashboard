@@ -143,6 +143,45 @@ export default function FoilShell({
             );
           })}
         </nav>
+
+        {/* Referral link — pinned to the bottom of the rail. The whole aside is
+         * md:flex, so this only appears on tablet/desktop (mobile uses the
+         * bottom nav). Collapses to a compact "REF" on the icon rail. */}
+        <a
+          href="https://mnstr.xyz?ref=SEXAS"
+          target="_blank"
+          rel="noreferrer noopener"
+          title="Play MnStr with my referral link — works for new users only"
+          className={`mt-auto block border-t transition-colors hover:bg-[var(--bg-2)] ${
+            collapsed ? 'px-2 py-3 text-center' : 'px-3 py-3.5'
+          }`}
+          style={{ borderColor: 'var(--line)' }}
+        >
+          {collapsed ? (
+            <Mono style={{ fontSize: 11, color: 'var(--accent)', letterSpacing: '0.08em' }}>REF ↗</Mono>
+          ) : (
+            <>
+              <Mono style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.18em', display: 'block', marginBottom: 6 }}>
+                PLAY MNSTR
+              </Mono>
+              <span
+                className="flex items-center justify-between gap-2 px-2.5 py-2"
+                style={{
+                  border: '1px solid var(--accent)',
+                  background: 'color-mix(in oklch, var(--accent) 8%, transparent)',
+                }}
+              >
+                <Mono style={{ fontSize: 10.5, color: 'var(--accent)', letterSpacing: '0.06em' }}>
+                  Join with my ref
+                </Mono>
+                <Mono style={{ fontSize: 11, color: 'var(--accent)' }}>↗</Mono>
+              </span>
+              <Mono style={{ fontSize: 8.5, color: 'var(--fg-4)', letterSpacing: '0.06em', display: 'block', marginTop: 5 }}>
+                new users only
+              </Mono>
+            </>
+          )}
+        </a>
       </aside>
 
       {/* Main column */}
@@ -253,7 +292,7 @@ export default function FoilShell({
          * mobile bottom nav is fixed and overlays the page; pb-28 reserves
          * the nav height so footer text stays visible when scrolled. */}
         <footer
-          className="flex items-center justify-between gap-3 flex-wrap px-3 py-4 pb-28 md:pb-4"
+          className="flex items-center justify-between gap-x-3 gap-y-1.5 flex-wrap px-3 py-2 pb-16 md:pb-3"
           style={{
             borderTop: '1px solid var(--line-soft)',
             background: 'var(--bg)',
@@ -268,10 +307,29 @@ export default function FoilShell({
             <span>·</span>
             <Link href="/privacy" style={{ color: 'var(--fg-3)' }}>PRIVACY</Link>
           </div>
+          {/* Referral chip — mobile only (tablet/desktop have the full CTA in
+           * the sidebar). One compact bordered unit (CTA + "new users only")
+           * that sits inline between TERMS·PRIVACY and the dev credit. */}
+          <a
+            href="https://mnstr.xyz?ref=SEXAS"
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Play MnStr with my referral link — works for new users only"
+            className="md:hidden order-1 inline-flex items-center gap-1.5 px-2 py-1"
+            style={{
+              border: '1px solid var(--accent)',
+              background: 'color-mix(in oklch, var(--accent) 8%, transparent)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ color: 'var(--accent)', fontSize: 9, letterSpacing: '0.1em' }}>JOIN · REF ↗</span>
+            <span style={{ color: 'var(--fg-4)', fontSize: 8, letterSpacing: '0.04em' }}>new users only</span>
+          </a>
           <a
             href="https://x.com/0xExas"
             target="_blank"
             rel="noreferrer noopener"
+            className="order-2"
             style={{
               color: 'var(--fg-3)',
               fontVariantNumeric: 'tabular-nums',
