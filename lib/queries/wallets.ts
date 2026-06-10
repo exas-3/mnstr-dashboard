@@ -1,4 +1,5 @@
 import { sql } from '@/db/client';
+import { ttlCache, ttlRefresh } from './cache';
 import type { HitRow } from './overview';
 
 /* ─────────────────────────────────────────────────────────────
@@ -61,7 +62,57 @@ export interface LeaderboardPage {
   total: number;        // total matching wallets (for "X wallets" + pagination)
 }
 
-export async function getLeaderboard(
+// 60s in-process cache for the heavy, slowly-changing board aggregation (it
+// recomputes pulls_enriched + wallet_pnl + per-wallet sparklines per request).
+// Searches (q) bypass it — rare, expected live, and would grow the key space.
+// ttlCache is stale-while-revalidate, so only the first request after a reload
+// actually waits; the board only moves as the poller indexes new pulls.
+const LEADERBOARD_TTL_MS = 60_000;
+
+export function getLeaderboard(
+  sort: WalletSort,
+  page: number,
+  pageSize: number,
+  q?: string,
+): Promise<LeaderboardPage> {
+  if (q && q.trim()) return computeLeaderboard(sort, page, pageSize, q);
+  return ttlCache(`lb:${sort}:${page}:${pageSize}`, LEADERBOARD_TTL_MS, () =>
+    computeLeaderboard(sort, page, pageSize));
+}
+
+// Background refresh: recompute the default board (pnl, page 0) + KPIs on a
+// fixed 60s cadence, so every request reads an always-warm, <60s-fresh value
+// from cache — the board is computed once a minute, never per request. Other
+// sorts/pages stay request-driven via ttlCache (≤ once per TTL). Started once
+// at server boot by instrumentation.ts; ttlRefresh coalesces so an overlapping
+// tick can't stack a second compute.
+const SSR_PAGE_SIZE = 25;
+// The timer refreshes every LEADERBOARD_TTL_MS; store the timed entries with a
+// longer TTL so they never lapse between ticks — no request falls into a stale
+// window and triggers a second, off-cadence recompute. Exactly one compute per
+// minute, with cushion if a tick is ever late or slow.
+const LEADERBOARD_REFRESH_TTL_MS = LEADERBOARD_TTL_MS * 3;
+
+async function refreshLeaderboardCache(): Promise<void> {
+  await Promise.all([
+    ttlRefresh(`lb:pnl:0:${SSR_PAGE_SIZE}`, LEADERBOARD_REFRESH_TTL_MS, () =>
+      computeLeaderboard('pnl', 0, SSR_PAGE_SIZE)),
+    ttlRefresh('lb:kpis', LEADERBOARD_REFRESH_TTL_MS, computeLeaderboardKpis),
+  ]);
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+export function startLeaderboardRefresh(): void {
+  if (refreshTimer) return;
+  const tick = () =>
+    refreshLeaderboardCache().catch(err =>
+      console.warn('[leaderboard] cache refresh failed:', (err as Error)?.message));
+  tick(); // warm immediately on boot
+  refreshTimer = setInterval(tick, LEADERBOARD_TTL_MS);
+  refreshTimer.unref?.();
+}
+
+async function computeLeaderboard(
   sort: WalletSort,
   page: number,
   pageSize: number,
@@ -254,7 +305,11 @@ async function pnlSparkForWallets(wallets: string[]): Promise<Map<string, number
   return map;
 }
 
-export async function getLeaderboardKpis(): Promise<LeaderboardKpis> {
+export function getLeaderboardKpis(): Promise<LeaderboardKpis> {
+  return ttlCache('lb:kpis', LEADERBOARD_TTL_MS, computeLeaderboardKpis);
+}
+
+async function computeLeaderboardKpis(): Promise<LeaderboardKpis> {
   // Spend comes from on-chain USDm OUT (wallet_pnl.realized_out, matches DB
   // sum-of-price_usd per audit). Net comes from wallet_pnl.total_net so the
   // winners % uses the same definition as the leaderboard and detail pages.
