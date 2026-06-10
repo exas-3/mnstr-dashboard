@@ -10,7 +10,7 @@ import { MnstrWatch } from './MnstrWatch';
 const COLLAPSE_KEY = 'mnstr.sidebar.collapsed';
 
 export interface ShellProps {
-  meta: { title: string; sub: string };
+  meta: { title: string; sub: string; h1?: string };
   active: NavKey | '';
   onSearch: () => void;
   onInfo: () => void;
@@ -246,7 +246,13 @@ export default function FoilShell({
           )}
         </header>
 
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          {/* Single page-level h1, rendered once here in the shell (outside the
+           * streamed page body, which React duplicates across hidden Suspense
+           * buffers) so the served HTML carries exactly one h1 on index routes. */}
+          {meta.h1 && <h1 className="sr-only">{meta.h1}</h1>}
+          {children}
+        </main>
 
         {/* Page-level legal + credit footer. TERMS · PRIVACY on the left,
          * developer credit pushed to the right via flex justify-between. The

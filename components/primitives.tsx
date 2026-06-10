@@ -91,16 +91,18 @@ export function SectionHead({
       >
         {cleanTag}
       </span>
-      <span
+      <h2
         style={{
+          margin: 0,
           fontFamily: 'var(--font-sans)',
           fontSize: 14,
+          fontWeight: 'inherit',
           color: 'var(--fg)',
           letterSpacing: '-0.01em',
         }}
       >
         {title}
-      </span>
+      </h2>
       {right && (
         <span
           className="ml-auto"

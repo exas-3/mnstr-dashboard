@@ -13,6 +13,8 @@ import {
 import { BackIcon } from '@/components/Icons';
 import CardHistoryLoadMore from '@/components/cards/CardHistoryLoadMore';
 import CardFmvChart from '@/components/cards/CardFmvChart';
+import JsonLd from '@/components/JsonLd';
+import { SITE_URL } from '@/lib/site';
 
 export const revalidate = 300;
 
@@ -78,8 +80,24 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
   const eyebrowBits = [card.card_set, card.year ? String(card.year) : null, card.grading]
     .filter((s): s is string => !!s);
 
+  const breadcrumb = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: SITE_URL },
+      { '@type': 'ListItem', position: 2, name: 'Cards', item: `${SITE_URL}/cards` },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: card.title ?? slug,
+        item: `${SITE_URL}/cards/${slug}`,
+      },
+    ],
+  };
+
   return (
     <div className="pb-6">
+      <JsonLd data={breadcrumb} />
       {/* Back chip */}
       <div className="px-4 pt-3">
         <Link href="/cards" className="inline-flex items-center gap-1.5">

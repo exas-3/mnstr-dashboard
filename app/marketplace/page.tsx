@@ -32,6 +32,7 @@ export default async function MarketplacePage() {
 
   return (
     <div className="pb-6">
+      <h1 className="sr-only">MnStr marketplace — secondary card sales</h1>
       <div className="px-3 pt-3.5">
         <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.18em' }}>
           MARKETPLACE

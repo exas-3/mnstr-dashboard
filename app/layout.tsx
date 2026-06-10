@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { fontClasses } from './fonts';
 import Shell from '@/components/Shell';
+import JsonLd from '@/components/JsonLd';
+import { SITE_URL, SITE_NAME, SITE_DESCRIPTION } from '@/lib/site';
 
 // Plausible — privacy-friendly analytics. Served same-origin: nginx proxies
 // /js/pa-*.js and /api/event to the Plausible instance on :3001 and rewrites
@@ -12,19 +14,13 @@ const PLAUSIBLE_SRC =
   process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ||
   '/js/pa-1J_aFxeWPXTRucUP7Z47G.js';
 
-// Canonical origin for OG / Twitter / sitemap resolution. Defaults to the
-// future production domain; override via env for staging or to keep the IP
-// canonical until the DNS cutover happens.
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://mnstr.watch';
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
     default: 'MnStr · Watch — Pokémon TCG & One Piece gacha analytics',
     template: '%s · MnStr · Watch',
   },
-  description:
-    'Live on-chain analytics for the MnStr gacha — graded Pokémon TCG and One Piece collectible cards. Track pack pulls, buyback vs FMV pricing, big hits, and house edge.',
+  description: SITE_DESCRIPTION,
   applicationName: 'MnStr · Watch',
   keywords: [
     'MnStr', 'MnStr gacha', 'MnStr watch',
@@ -65,10 +61,43 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Site-wide schema.org identity (Organization + WebSite), linked via @id.
+  // Per-page types (e.g. BreadcrumbList) are emitted by the route components.
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        '@id': `${SITE_URL}/#organization`,
+        name: SITE_NAME,
+        url: SITE_URL,
+        logo: {
+          '@type': 'ImageObject',
+          url: `${SITE_URL}/favicon-512.png`,
+          width: 512,
+          height: 512,
+        },
+        sameAs: ['https://x.com/0xExas'],
+      },
+      {
+        '@type': 'WebSite',
+        '@id': `${SITE_URL}/#website`,
+        name: SITE_NAME,
+        alternateName: 'MnStr Watch',
+        url: SITE_URL,
+        description: SITE_DESCRIPTION,
+        publisher: { '@id': `${SITE_URL}/#organization` },
+        inLanguage: 'en',
+      },
+    ],
+  };
+
   return (
     <html lang="en" data-theme="foil" className={fontClasses}>
       <body className="min-h-dvh">
         <Shell>{children}</Shell>
+
+        <JsonLd data={structuredData} />
 
         {/* Privacy-friendly analytics by Plausible */}
         <script async src={PLAUSIBLE_SRC} />

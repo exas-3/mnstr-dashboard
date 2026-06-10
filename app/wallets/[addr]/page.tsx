@@ -21,6 +21,8 @@ import HeldFmvChart from '@/components/wallets/HeldFmvChart';
 import { getWalletHeldFmvSeries } from '@/lib/queries/held-fmv';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
 import CollectionTile from '@/components/wallets/CollectionTile';
+import JsonLd from '@/components/JsonLd';
+import { SITE_URL } from '@/lib/site';
 
 export const revalidate = 300;
 
@@ -107,8 +109,24 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
   const payout = abbrUsd(detail.payout);
   const tierTotal = detail.tierMix.reduce((s, t) => s + t.pulls, 0);
 
+  const breadcrumb = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: SITE_URL },
+      { '@type': 'ListItem', position: 2, name: 'Wallets', item: `${SITE_URL}/wallets` },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: display,
+        item: `${SITE_URL}/wallets/${detail.wallet}`,
+      },
+    ],
+  };
+
   return (
     <div className="pb-6">
+      <JsonLd data={breadcrumb} />
       {/* Back chip */}
       <div className="px-4 pt-3">
         <Link href="/wallets" className="inline-flex items-center gap-1.5">
@@ -124,8 +142,9 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         <div className="flex items-center gap-3">
           <Identicon addr={detail.wallet} size={44} />
           <div className="min-w-0 flex-1">
-            <div
+            <h1
               style={{
+                margin: 0,
                 fontFamily: 'var(--font-sans)',
                 fontSize: 20,
                 fontWeight: 500,
@@ -133,7 +152,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
               }}
             >
               {display}
-            </div>
+            </h1>
             <Mono style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>
               {shortAddr(detail.wallet)}
               {detail.rank > 0 && ` · rank #${detail.rank.toLocaleString('en-US')}`}
