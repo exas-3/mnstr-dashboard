@@ -3,12 +3,19 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Mono, SectionHead, StatusPill, TierTag, type Tier } from '../primitives';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { HitRow, Kpis } from '@/lib/queries';
 
 // SSE is primary; this HTTP poll is a backstop in case the EventSource
 // silently breaks (proxy reaped it, upstream restart, etc.). 5 min is short
 // enough to self-heal quickly without doubling load on the API.
 const POLL_MS = 5 * 60 * 1000;
+// Floor between SSE-triggered refetches. The server already coalesces
+// pulls events per connection, but indexer bursts can still push more often
+// than a feed needs to repaint — trailing throttle so the last event of a
+// burst still lands.
+const MIN_FETCH_GAP_MS = 3_000;
 
 interface LiveData {
   kpis: Kpis;
@@ -93,28 +100,48 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
   useEffect(() => {
     setMounted(true);
     let cancelled = false;
+    let inFlight = false;
+    let lastFetch = 0;
+    let throttleTimer: number | null = null;
     async function poll() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(`/api/live?limit=${feedLimitRef.current}`, { cache: 'no-store' });
         if (!res.ok) return;
         const json = (await res.json()) as LiveData;
         if (!cancelled) setData(json);
-      } catch {}
+      } catch {
+      } finally {
+        inFlight = false;
+      }
+    }
+    // Trailing throttle for SSE pushes — bursts collapse into one refetch
+    // every MIN_FETCH_GAP_MS instead of one per event.
+    function schedulePoll() {
+      if (throttleTimer !== null) return;
+      const wait = Math.max(0, lastFetch + MIN_FETCH_GAP_MS - Date.now());
+      throttleTimer = window.setTimeout(() => {
+        throttleTimer = null;
+        lastFetch = Date.now();
+        void poll();
+      }, wait);
     }
     // Backstop HTTP poll — fires only if SSE goes dark.
     const id = window.setInterval(poll, POLL_MS);
     const tickId = window.setInterval(() => setTick(t => t + 1), 1000);
     // Primary push channel — server emits `pulls` whenever the indexer
-    // inserts (or enriches) a pull. We refetch immediately so the new row
-    // and updated KPIs show up within ~1s of chain confirmation.
+    // inserts (or enriches) a pull. We refetch promptly so the new row
+    // and updated KPIs show up within seconds of chain confirmation.
     // EventSource auto-reconnects on transient errors.
     const es = new EventSource('/api/live/stream');
-    const onPulls = () => poll();
+    const onPulls = () => schedulePoll();
     es.addEventListener('pulls', onPulls);
     return () => {
       cancelled = true;
       window.clearInterval(id);
       window.clearInterval(tickId);
+      if (throttleTimer !== null) window.clearTimeout(throttleTimer);
       es.removeEventListener('pulls', onPulls);
       es.close();
     };
@@ -183,20 +210,15 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
         {data.feed.map((it, idx) => {
           const fmv = Number(it.fmv_usd ?? 0);
           const who = it.username ? `@${it.username}` : shortAddr(it.wallet);
-          const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
+          const img = cardImageUrl(it.card_slug, it.card_image_front, 240);
           const cardImage = (
-            <div
+            <CardThumb
+              img={img}
+              alt={it.card_title}
+              className="flex flex-col justify-end"
               style={{
-                aspectRatio: '5/7',
-                background: img
-                  ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-                  : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
                 border: `1px solid ${fmv >= 1000 ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-                position: 'relative',
                 padding: 6,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'flex-end',
               }}
             >
               {/* Price pill at the bottom — same style as CardWallTile so the
@@ -214,7 +236,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
               >
                 ${fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0)}
               </Mono>
-            </div>
+            </CardThumb>
           );
           return (
             <div
@@ -256,7 +278,7 @@ export default function LivePulse({ initial, embed = false }: { initial: LiveDat
       {hover && data.feed[hover.idx] && (() => {
         const it = data.feed[hover.idx];
         const fmv = Number(it.fmv_usd ?? 0);
-        const img = it.card_slug ? `/img/${it.card_slug}` : it.card_image_front;
+        const img = cardImageUrl(it.card_slug, it.card_image_front, 480);
         if (!img) return null;
         return (
           <div

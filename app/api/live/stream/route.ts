@@ -25,6 +25,14 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const HEARTBEAT_MS = 25_000;
+// Indexer bursts (backfill/enrich/fmv loops) can NOTIFY many times a second;
+// every event makes every connected client refetch its JSON slice. Coalesce
+// per connection: at most one pulls/market event per window, with a trailing
+// send so the last tick of a burst still goes out.
+const EVENT_COALESCE_MS = 2_000;
+// Reconnect-delay hint for the browser's EventSource. Proxies/VPNs that
+// can't hold SSE open otherwise reconnect every ~3s (browser default).
+const RETRY_MS = 10_000;
 
 interface Hub {
   emitter: EventEmitter;
@@ -80,11 +88,36 @@ export async function GET() {
 
       // Initial hello so the client knows the stream is open. Useful as a
       // first byte for proxies that wait on the first chunk before
-      // committing the response.
+      // committing the response. The retry field sets the browser's
+      // reconnect delay for this stream.
+      if (!closed) {
+        try {
+          controller.enqueue(enc.encode(`retry: ${RETRY_MS}\n\n`));
+        } catch {}
+      }
       send('hello');
 
-      const onPulls  = () => send('pulls');
-      const onMarket = () => send('market');
+      // Trailing-edge throttle: first event of a burst goes out after at
+      // most EVENT_COALESCE_MS, everything in between collapses into it.
+      const timerCleanups: (() => void)[] = [];
+      const coalesced = (event: string) => {
+        let last = 0;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        timerCleanups.push(() => {
+          if (timer) clearTimeout(timer);
+        });
+        return () => {
+          if (timer) return;
+          const wait = Math.max(0, last + EVENT_COALESCE_MS - Date.now());
+          timer = setTimeout(() => {
+            timer = null;
+            last = Date.now();
+            send(event);
+          }, wait);
+        };
+      };
+      const onPulls  = coalesced('pulls');
+      const onMarket = coalesced('market');
       hub.emitter.on('pulls',  onPulls);
       hub.emitter.on('market', onMarket);
 
@@ -95,6 +128,7 @@ export async function GET() {
       (controller as unknown as { __teardown: () => void }).__teardown = () => {
         closed = true;
         clearInterval(heartbeat);
+        timerCleanups.forEach(fn => fn());
         hub.emitter.off('pulls',  onPulls);
         hub.emitter.off('market', onMarket);
       };
