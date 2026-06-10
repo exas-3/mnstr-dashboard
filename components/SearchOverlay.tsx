@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mono } from './primitives';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from './CardThumb';
 
 interface WalletHit {
   wallet: string;
@@ -129,7 +131,7 @@ export default function SearchOverlay({
       primary: c.title ?? c.slug,
       secondary: [c.card_set, c.grading].filter(Boolean).join(' · ') || undefined,
       trailing: c.fmv != null ? `${abbrUsd(c.fmv)} · ${c.pulls}×` : `${c.pulls}×`,
-      imageUrl: c.slug ? `/img/${c.slug}` : c.image_front,
+      imageUrl: cardImageUrl(c.slug, c.image_front, 120),
     }));
     return [...walletItems, ...cardItems];
   }, [results, q]);
@@ -332,13 +334,10 @@ function ResultRow({
       }}
     >
       {item.imageUrl && (
-        <div
-          style={{
-            width: 32,
-            aspectRatio: '5/7',
-            background: `center/contain no-repeat url("${item.imageUrl}"), var(--bg-3)`,
-            border: '1px solid var(--line-soft)',
-          }}
+        <CardThumb
+          img={item.imageUrl}
+          alt={item.primary}
+          style={{ width: 32, border: '1px solid var(--line-soft)' }}
         />
       )}
       <div className="min-w-0">

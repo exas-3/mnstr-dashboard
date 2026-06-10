@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
 import { useHoverImagePopover } from '../HoverImagePopover';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { TierOutlier } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -19,12 +21,14 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
   // Thumb + title link to the card detail. Pullers and tier tag are siblings
   // — keeps the HTML valid (no nested <a>).
   const cardHref = outlier.card_slug ? `/cards/${outlier.card_slug}` : null;
-  const previewImg = outlier.card_slug ? `/img/${outlier.card_slug}` : outlier.card_image_front;
+  const thumbImg = cardImageUrl(outlier.card_slug, outlier.card_image_front, 120);
+  const previewImg = cardImageUrl(outlier.card_slug, outlier.card_image_front, 480);
 
   // Hover preview — small-thumb rows benefit from a magnifier at any screen
   // size, so disable the default 2xl gate via alwaysVisible.
   const { handlers, popover } = useHoverImagePopover({
-    image: previewImg,
+    image: thumbImg,
+    previewImage: previewImg,
     title: outlier.card_title,
     amount: `$${fmvLabel}`,
     hot,
@@ -51,10 +55,10 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
     >
       {cardHref ? (
         <Link href={cardHref}>
-          <Thumb outlier={outlier} hot={hot} />
+          <Thumb img={thumbImg} alt={outlier.card_title} hot={hot} />
         </Link>
       ) : (
-        <Thumb outlier={outlier} hot={hot} />
+        <Thumb img={thumbImg} alt={outlier.card_title} hot={hot} />
       )}
 
       <div className="min-w-0">
@@ -119,17 +123,12 @@ export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; f
   );
 }
 
-function Thumb({ outlier, hot }: { outlier: TierOutlier; hot: boolean }) {
-  const img = outlier.card_slug ? `/img/${outlier.card_slug}` : outlier.card_image_front;
+function Thumb({ img, alt, hot }: { img: string | null; alt: string | null | undefined; hot: boolean }) {
   return (
-    <div
-      style={{
-        aspectRatio: '5/7',
-        background: img
-          ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-          : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-        border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-      }}
+    <CardThumb
+      img={img}
+      alt={alt}
+      style={{ border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}` }}
     />
   );
 }

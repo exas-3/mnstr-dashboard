@@ -5,6 +5,8 @@ import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
 import { premiumFraction, type PremiumMode } from '@/lib/buyback';
 import LocalTime from '../LocalTime';
 import { useHoverImagePopover } from '../HoverImagePopover';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { WalletActivity } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -36,7 +38,8 @@ export default function WalletActivityRow({
   premiumMode?: PremiumMode;
 }) {
   const title = ev.card_title ?? 'unknown card';
-  const img = ev.card_slug ? `/img/${ev.card_slug}` : ev.card_image_front;
+  const img = cardImageUrl(ev.card_slug, ev.card_image_front, 120);
+  const preview = cardImageUrl(ev.card_slug, ev.card_image_front, 480);
   // Hover preview — magnified card image follows the cursor. Hidden at 2xl+.
   const amount =
     ev.kind === 'pull'
@@ -44,6 +47,7 @@ export default function WalletActivityRow({
       : `$${Math.round(ev.sale_price_usd).toLocaleString('en-US')}`;
   const { handlers, popover } = useHoverImagePopover({
     image: img,
+    previewImage: preview,
     title,
     amount,
     hot: ev.kind === 'pull' && ev.fmv_usd != null && ev.fmv_usd >= 1000,
@@ -59,15 +63,7 @@ export default function WalletActivityRow({
       }}
       {...handlers}
     >
-      <div
-        style={{
-          aspectRatio: '5/7',
-          background: img
-            ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-            : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-          border: '1px solid var(--line)',
-        }}
-      />
+      <CardThumb img={img} alt={title} style={{ border: '1px solid var(--line)' }} />
       <div className="min-w-0">
         <div
           className="truncate"

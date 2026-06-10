@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
 import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import LocalTime from '../LocalTime';
 import type { HitRow } from '@/lib/queries';
 
@@ -21,20 +22,11 @@ export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolea
         borderTop: first ? 'none' : '1px dashed var(--line-soft)',
       }}
     >
-      {(() => {
-        const img = cardImageUrl(hit.card_slug, hit.card_image_front);
-        return (
-          <div
-            style={{
-              aspectRatio: '5/7',
-              background: img
-                ? `center/contain no-repeat url("${img}")`
-                : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-              border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
-            }}
-          />
-        );
-      })()}
+      <CardThumb
+        img={cardImageUrl(hit.card_slug, hit.card_image_front, 120)}
+        alt={hit.card_title}
+        style={{ border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}` }}
+      />
       <div className="min-w-0">
         <div
           className="truncate"

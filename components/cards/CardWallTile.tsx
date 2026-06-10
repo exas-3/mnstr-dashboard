@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { Mono, type Tier } from '../primitives';
 import { useHoverImagePopover } from '../HoverImagePopover';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { CardListItem } from '@/lib/queries';
 
 const TIER_COLOR: Record<string, string> = {
@@ -17,13 +19,15 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
   const tier = (card.top_tier ?? 'Starter') as Tier;
   const tc = TIER_COLOR[tier];
 
-  const img = card.slug ? `/img/${card.slug}` : card.image_front;
+  const img = cardImageUrl(card.slug, card.image_front, 240);
+  const preview = cardImageUrl(card.slug, card.image_front, 480);
   const fmv = card.fmv ?? 0;
   const fmvLabel = fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0);
   // Hover preview — default 2xl:hidden gate (large screens have big enough
   // tiles to read without a magnifier).
   const { handlers, popover } = useHoverImagePopover({
     image: img,
+    previewImage: preview,
     title: card.title,
     amount: card.fmv !== null ? `$${fmvLabel}` : '',
     hot,
@@ -32,13 +36,11 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
   return (
     <>
     <Link href={`/cards/${card.slug}`} className="block" {...handlers}>
-      <div
-        className="relative flex flex-col justify-between p-1.5"
+      <CardThumb
+        img={img}
+        alt={card.title}
+        className="flex flex-col justify-between p-1.5"
         style={{
-          aspectRatio: '5/7',
-          background: img
-            ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-            : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
           border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
           boxShadow: hot
             ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 22px color-mix(in oklch, var(--accent) 12%, transparent)'
@@ -95,7 +97,7 @@ export default function CardWallTile({ card }: { card: CardListItem }) {
             </Mono>
           )}
         </div>
-      </div>
+      </CardThumb>
     </Link>
     {popover}
     </>

@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { Mono } from '../primitives';
 import { useHoverImagePopover } from '../HoverImagePopover';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { HitRow } from '@/lib/queries';
 
 const TIER_COLOR: Record<string, string> = {
@@ -17,13 +19,13 @@ const TIER_COLOR: Record<string, string> = {
 export default function CollectionTile({ row }: { row: HitRow }) {
   const fmv = Number(row.fmv_usd ?? 0);
   const hot = fmv >= 1000;
-  const img = row.card_slug
-    ? `/img/${row.card_slug}`
-    : row.card_image_front ?? null;
+  const img = cardImageUrl(row.card_slug, row.card_image_front, 240);
+  const preview = cardImageUrl(row.card_slug, row.card_image_front, 480);
   const fmvLabel = fmv >= 1000 ? Math.round(fmv).toLocaleString('en-US') : fmv.toFixed(0);
 
   const { handlers, popover } = useHoverImagePopover({
     image: img,
+    previewImage: preview,
     title: row.card_title,
     amount: `$${fmvLabel}`,
     hot,
@@ -32,13 +34,11 @@ export default function CollectionTile({ row }: { row: HitRow }) {
   return (
     <>
       <Link href={row.card_slug ? `/cards/${row.card_slug}` : '#'} {...handlers}>
-        <div
-          className="relative flex flex-col justify-between p-1.5"
+        <CardThumb
+          img={img}
+          alt={row.card_title}
+          className="flex flex-col justify-between p-1.5"
           style={{
-            aspectRatio: '5/7',
-            background: img
-              ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-              : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 5px, oklch(0.22 0.01 70) 5px, oklch(0.22 0.01 70) 10px)',
             border: `1px solid ${hot ? 'color-mix(in oklch, var(--accent) 53%, transparent)' : 'var(--line)'}`,
             boxShadow: hot
               ? '0 0 0 1px color-mix(in oklch, var(--accent) 13%, transparent), 0 0 18px color-mix(in oklch, var(--accent) 12%, transparent)'
@@ -67,7 +67,7 @@ export default function CollectionTile({ row }: { row: HitRow }) {
           >
             ${fmvLabel}
           </Mono>
-        </div>
+        </CardThumb>
       </Link>
       {popover}
     </>

@@ -11,8 +11,10 @@ export function CardList({ label, cards, color, max = 4 }: { label: string; card
       {single ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/img/${single.slug}`}
+          src={`/img/${single.slug}?w=240`}
           alt={single.title}
+          loading="lazy"
+          decoding="async"
           style={{ width: 160, height: 'auto', display: 'block', border: '1px solid var(--line-soft)' }}
         />
       ) : (

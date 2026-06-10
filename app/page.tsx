@@ -17,6 +17,7 @@ import TierStrip from '@/components/pulse/TierStrip';
 import LivePulse from '@/components/live/LivePulse';
 import BigHitsLoadMore from '@/components/pulse/BigHitsLoadMore';
 import BigHitBanner from '@/components/BigHitBanner';
+import { cardImageUrl } from '@/lib/img';
 
 export const revalidate = 60;
 
@@ -139,7 +140,7 @@ export default async function PulsePage({
             tier: bigHit.tier.toUpperCase(),
             // FMV frozen at pull time (falls back to current if not yet snapshotted).
             fmv: Math.round(Number(bigHit.fmv_at_pull_usd ?? bigHit.fmv_usd ?? 0)).toLocaleString('en-US'),
-            imageUrl: bigHit.card_slug ? `/img/${bigHit.card_slug}` : bigHit.card_image_front,
+            imageUrl: cardImageUrl(bigHit.card_slug, bigHit.card_image_front, 480),
             href: bigHit.card_slug ? `/cards/${bigHit.card_slug}` : undefined,
           }}
         />

@@ -35,6 +35,8 @@ const VIEWPORT_MARGIN = 8;
 
 interface Args {
   image: string | null | undefined;
+  /** Larger source for the magnified popover; falls back to `image`. */
+  previewImage?: string | null;
   title: string | null | undefined;
   amount: string;          // pre-formatted, e.g. "$1,234"
   hot?: boolean;           // amber border for big hits
@@ -52,7 +54,7 @@ interface Result {
   popover: ReactNode | null;
 }
 
-export function useHoverImagePopover({ image, title, amount, hot, alwaysVisible = false }: Args): Result {
+export function useHoverImagePopover({ image, previewImage, title, amount, hot, alwaysVisible = false }: Args): Result {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
   function onMouseMove(e: MouseEvent<HTMLElement>) {
@@ -90,7 +92,7 @@ export function useHoverImagePopover({ image, title, amount, hot, alwaysVisible 
       <div
         style={{
           aspectRatio: '5/7',
-          background: `center/contain no-repeat url("${image}"), var(--bg-3)`,
+          background: `center/contain no-repeat url("${previewImage ?? image}"), var(--bg-3)`,
           border: `1px solid ${hot ? 'var(--accent)' : 'var(--line)'}`,
           boxShadow:
             '0 16px 50px rgba(0,0,0,0.55), 0 0 0 1px color-mix(in oklch, var(--accent) 10%, transparent)',

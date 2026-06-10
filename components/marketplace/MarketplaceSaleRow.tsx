@@ -5,6 +5,8 @@ import { Mono, TierTag, type Tier } from '../primitives';
 import { premiumFraction } from '@/lib/buyback';
 import LocalTime from '../LocalTime';
 import { useHoverImagePopover } from '../HoverImagePopover';
+import { cardImageUrl } from '@/lib/img';
+import CardThumb from '../CardThumb';
 import type { MarketplaceSale } from '@/lib/queries';
 
 function shortAddr(a: string): string {
@@ -27,7 +29,8 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
   // player. The buyer / price / on-chain tx are still real; we just don't
   // have card metadata since cards.* is populated by the pull enrich step.
   const orphan = !sale.card_slug;
-  const img = sale.card_slug ? `/img/${sale.card_slug}` : sale.card_image_front;
+  const img = cardImageUrl(sale.card_slug, sale.card_image_front, 120);
+  const preview = cardImageUrl(sale.card_slug, sale.card_image_front, 480);
   const title = sale.card_title ?? `Vault sale · #${sale.serial_number}`;
   const subtitle = sale.card_grading ?? (orphan ? 'sold direct from MnStr vault' : null);
   // Premium vs the protocol's buyback price (FMV × tier rate) — i.e. what the
@@ -41,6 +44,7 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
   // Hover preview — magnified card image follows cursor. Hidden at 2xl+.
   const { handlers, popover } = useHoverImagePopover({
     image: img,
+    previewImage: preview,
     title,
     amount: usd(sale.price_usd, sale.price_usd < 100 ? 2 : 0),
     hot: sale.price_usd >= 1000,
@@ -56,15 +60,7 @@ export default function MarketplaceSaleRow({ sale, first }: { sale: MarketplaceS
       }}
       {...handlers}
     >
-      <div
-        style={{
-          aspectRatio: '5/7',
-          background: img
-            ? `center/contain no-repeat url("${img}"), var(--bg-3)`
-            : 'repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-          border: '1px solid var(--line)',
-        }}
-      />
+      <CardThumb img={img} alt={title} style={{ border: '1px solid var(--line)' }} />
       <div className="min-w-0">
         <div
           className="truncate"

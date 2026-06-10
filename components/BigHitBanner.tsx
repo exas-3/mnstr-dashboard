@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Mono } from './primitives';
+import CardThumb from './CardThumb';
 
 export interface BigHit {
   ago: string;          // "14S AGO"
@@ -42,14 +43,11 @@ export default function BigHitBanner({ pull }: { pull: BigHit }) {
         cursor: pull.href ? 'pointer' : 'default',
       }}
     >
-      <div
-        style={{
-          aspectRatio: '5/7',
-          background: pull.imageUrl
-            ? `center/contain no-repeat url("${pull.imageUrl}")`
-            : 'radial-gradient(circle at 30% 20%, color-mix(in oklch, var(--accent) 27%, transparent), transparent 55%), repeating-linear-gradient(135deg, oklch(0.27 0.012 70), oklch(0.27 0.012 70) 4px, oklch(0.22 0.01 70) 4px, oklch(0.22 0.01 70) 8px)',
-          border: '1px solid color-mix(in oklch, var(--accent) 53%, transparent)',
-        }}
+      <CardThumb
+        img={pull.imageUrl}
+        alt={pull.title}
+        eager
+        style={{ border: '1px solid color-mix(in oklch, var(--accent) 53%, transparent)' }}
       />
       <div className="min-w-0">
         <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.18em' }}>
