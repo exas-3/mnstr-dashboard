@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { sql } from '@/db/client';
+import { notify } from '@/scripts/notify';
 import { ttlCache, ttlRefresh } from './cache';
 import { escapeLike } from './shared';
 import { WALLETS_PAGE_SIZE } from '@/lib/constants';
@@ -100,16 +101,42 @@ async function refreshLeaderboardCache(): Promise<void> {
   await Promise.all([
     ttlRefresh(`lb:pnl:0:${SSR_PAGE_SIZE}`, LEADERBOARD_REFRESH_TTL_MS, () =>
       computeLeaderboard('pnl', 0, SSR_PAGE_SIZE)),
+    ttlRefresh(`lb:spend:0:${SSR_PAGE_SIZE}`, LEADERBOARD_REFRESH_TTL_MS, () =>
+      computeLeaderboard('spend', 0, SSR_PAGE_SIZE)),
+    ttlRefresh(`lb:pulls:0:${SSR_PAGE_SIZE}`, LEADERBOARD_REFRESH_TTL_MS, () =>
+      computeLeaderboard('pulls', 0, SSR_PAGE_SIZE)),
     ttlRefresh('lb:kpis', LEADERBOARD_REFRESH_TTL_MS, computeLeaderboardKpis),
   ]);
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+// Alert once after this many consecutive warmer failures, then stay quiet
+// until a success re-arms it (same pattern as pollLoop in scripts/poll.ts —
+// notify() itself has no dedup). 3 ticks ≈ 3 minutes of cold /wallets.
+const WARMER_ALERT_AFTER = 3;
+let warmerFailures = 0;
+let warmerAlerted = false;
+
 export function startLeaderboardRefresh(): void {
   if (refreshTimer) return;
   const tick = () =>
-    refreshLeaderboardCache().catch(err =>
-      console.warn('[leaderboard] cache refresh failed:', (err as Error)?.message));
+    refreshLeaderboardCache()
+      .then(() => {
+        if (warmerAlerted) {
+          notify(`leaderboard warmer recovered after ${warmerFailures} failed cycle(s)`).catch(() => {});
+        }
+        warmerFailures = 0;
+        warmerAlerted = false;
+      })
+      .catch(err => {
+        warmerFailures++;
+        const msg = (err as Error)?.message ?? String(err);
+        console.warn(`[leaderboard] cache refresh failed (${warmerFailures} consecutive):`, msg);
+        if (warmerFailures >= WARMER_ALERT_AFTER && !warmerAlerted) {
+          warmerAlerted = true;
+          notify(`/wallets cache warmer failing: ${warmerFailures} consecutive refresh errors. Last: ${msg.slice(0, 300)}`).catch(() => {});
+        }
+      });
   tick(); // warm immediately on boot
   refreshTimer = setInterval(tick, LEADERBOARD_TTL_MS);
   refreshTimer.unref?.();
@@ -173,11 +200,20 @@ async function computeLeaderboard(
   `;
 
   // Cumulative spark per wallet (one point per active day, sum of the
-  // sort metric — pulls, spend or net P&L).
+  // sort metric — pulls, spend or net P&L). Sparks are decoration: if their
+  // query (the heaviest in the app) fails or times out, serve the board
+  // without sparklines instead of failing the whole page — LeaderboardRow
+  // skips the <Sparkline> for empty arrays.
   const wallets = rows.map(r => r.wallet);
-  const sparkByWallet = wallets.length > 0
-    ? await sparkForWallets(wallets, sort)
-    : new Map<string, number[]>();
+  let sparkByWallet = new Map<string, number[]>();
+  if (wallets.length > 0) {
+    try {
+      sparkByWallet = await sparkForWallets(wallets, sort);
+    } catch (err) {
+      console.warn('[leaderboard] spark query failed, serving board without sparklines:',
+        (err as Error)?.message);
+    }
+  }
 
   return {
     rows: rows.map((r, i) => ({
