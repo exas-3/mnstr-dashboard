@@ -11,6 +11,7 @@ import {
   getOperatorUsdmFlows,
   type UsdmFlowLog,
 } from './chain.js';
+import { assignPayouts } from './payout-assign.js';
 
 const STATE_KEY = 'last_usdm_flow_block';
 
@@ -18,8 +19,12 @@ const STATE_KEY = 'last_usdm_flow_block';
 // chunks internally below the cap, so this is the outer-loop step. Bigger
 // chunks reduce the number of NOTIFY+state-write cycles per backfill run.
 const CHUNK_BLOCKS = 50_000;
-// Re-scan the prior tail in case the previous run lost late entries.
-const LOOKBACK_BLOCKS = 100;
+// Re-scan the prior tail in case the previous run lost late entries. Matches
+// the other backfills (5k) — pollOnce snapshots the head from `alchemyRpc`
+// while this scan fetches from `alchemyRpcBackfill`, and the old 100-block
+// overlap couldn't absorb much skew between the two endpoints. ON CONFLICT
+// makes the re-scan free (2 extra getLogs calls per cycle at most).
+const LOOKBACK_BLOCKS = 5_000;
 
 // Set of mnstr-side addresses for counterparty classification. The operator
 // EOA is the only one that actually receives/sends USDm directly today, but
@@ -42,7 +47,8 @@ interface Row {
   counterparty: string;
 }
 
-function toRows(logs: UsdmFlowLog[]): Row[] {
+// Exported for unit tests (direction/self-shuffle classification is money-critical).
+export function toRows(logs: UsdmFlowLog[]): Row[] {
   const rows: Row[] = [];
   for (const l of logs) {
     const fromIsMnstr = MNSTR_ADDRESSES.get(l.from);
@@ -146,13 +152,6 @@ export async function backfillUsdmFlows(opts: BackfillUsdmOpts = {}): Promise<vo
   await linkSellbacksOnchain();
 }
 
-// A payout transfer can land a few blocks BEFORE its NFTSoldBack event
-// (observed min delta −5) and typically lands ~1 block after (observed max
-// +203). MAX_FORWARD bounds how far ahead we'll reach so a missing payout
-// can't make a sellback steal the next card's (much later) payout.
-const PAYOUT_SLACK_BACK = 5;
-const PAYOUT_MAX_FORWARD = 1000;
-
 /**
  * Per-sellback on-chain attribution: set `sellbacks.onchain_amount_usd` +
  * `payout_tx_hash` to the actual USDm transfer that paid the player.
@@ -188,42 +187,30 @@ export async function linkSellbacksOnchain(): Promise<number> {
     ORDER BY wallet, block_number, log_index
   `;
 
-  // Bucket payout transfers by player, preserving (block, log_index) order.
-  const byPlayer = new Map<string, { block: number; tx: string; amount: string }[]>();
-  for (const f of flows) {
-    let arr = byPlayer.get(f.player);
-    if (!arr) { arr = []; byPlayer.set(f.player, arr); }
-    arr.push({ block: Number(f.block_number), tx: f.tx_hash, amount: f.amount_usd });
-  }
-
-  // Greedy one-to-one assignment, then diff against the stored values so we
-  // only write rows that actually change.
+  // Greedy one-to-one assignment (pure core in payout-assign.ts, unit-tested),
+  // then diff against the stored values so we only write rows that change.
+  const assignments = assignPayouts(
+    sellbacks.map(sb => ({
+      requestId: sb.request_id,
+      player: sb.player,
+      block: Number(sb.block_number),
+    })),
+    flows.map(f => ({
+      player: f.player,
+      block: Number(f.block_number),
+      tx: f.tx_hash,
+      amount: f.amount_usd,
+    })),
+  );
+  const stored = new Map(sellbacks.map(sb => [sb.request_id, sb]));
   const changed: { request_id: string; amount: string | null; tx: string | null }[] = [];
-  let curPlayer = '';
-  let transfers: { block: number; tx: string; amount: string }[] = [];
-  let ti = 0;
-  for (const sb of sellbacks) {
-    if (sb.player !== curPlayer) {
-      curPlayer = sb.player;
-      transfers = byPlayer.get(curPlayer) ?? [];
-      ti = 0;
-    }
-    const sbBlock = Number(sb.block_number);
-    // A transfer before this sellback's window can't belong to it — nor to any
-    // later sellback (those have higher blocks) — so skip it permanently.
-    while (ti < transfers.length && transfers[ti].block < sbBlock - PAYOUT_SLACK_BACK) ti++;
-    let amount: string | null = null;
-    let tx: string | null = null;
-    if (ti < transfers.length && transfers[ti].block <= sbBlock + PAYOUT_MAX_FORWARD) {
-      amount = transfers[ti].amount;
-      tx = transfers[ti].tx;
-      ti++;
-    }
+  for (const a of assignments) {
+    const sb = stored.get(a.requestId)!;
     const sameAmt =
-      (sb.amt == null && amount == null) ||
-      (sb.amt != null && amount != null && Number(sb.amt) === Number(amount));
-    const sameTx = (sb.tx ?? null) === (tx ?? null);
-    if (!sameAmt || !sameTx) changed.push({ request_id: sb.request_id, amount, tx });
+      (sb.amt == null && a.amount == null) ||
+      (sb.amt != null && a.amount != null && Number(sb.amt) === Number(a.amount));
+    const sameTx = (sb.tx ?? null) === (a.tx ?? null);
+    if (!sameAmt || !sameTx) changed.push({ request_id: a.requestId, amount: a.amount, tx: a.tx });
   }
 
   if (changed.length === 0) return 0;

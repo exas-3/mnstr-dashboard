@@ -8,6 +8,8 @@
 import { useState } from 'react';
 import WalletActivityRow from './WalletActivityRow';
 import PremiumModeToggle from '../PremiumModeToggle';
+import LoadMoreButton from '../LoadMoreButton';
+import { usePagedList } from '../usePagedList';
 import { Mono } from '../primitives';
 import type { PremiumMode } from '@/lib/buyback';
 import type { WalletActivity } from '@/lib/queries';
@@ -23,36 +25,16 @@ export default function WalletRecentLoadMore({
   initialRows: WalletActivity[];
   totalEvents: number;
 }) {
-  const [rows, setRows] = useState<WalletActivity[]>(initialRows);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { rows, remaining, nextBatch, loading, error, loadMore } = usePagedList<WalletActivity>({
+    url: `/api/wallets/${wallet}/activity`,
+    mode: 'offset',
+    pageSize: PAGE_SIZE,
+    initialRows,
+    total: totalEvents,
+    keyOf: r => `${r.kind}:${r.event_id}`,
+  });
   const [premiumMode, setPremiumMode] = useState<PremiumMode>('buyback');
   const hasSales = rows.some(r => r.kind === 'sale_buy' || r.kind === 'sale_sell');
-
-  const remaining = Math.max(0, totalEvents - rows.length);
-  const nextBatch = Math.min(remaining, PAGE_SIZE);
-
-  async function loadMore() {
-    if (loading || remaining === 0) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/wallets/${wallet}/activity?offset=${rows.length}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: WalletActivity[] };
-      setRows(prev => {
-        const seen = new Set(prev.map(r => `${r.kind}:${r.event_id}`));
-        const fresh = data.rows.filter(r => !seen.has(`${r.kind}:${r.event_id}`));
-        return [...prev, ...fresh];
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <>
@@ -76,33 +58,13 @@ export default function WalletRecentLoadMore({
         )}
       </div>
 
-      {nextBatch > 0 && (
-        <div className="px-4 pt-3 pb-1 text-center">
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loading}
-            style={{
-              padding: '8px 16px',
-              color: loading ? 'var(--fg-4)' : 'var(--accent)',
-              border: `1px solid ${loading ? 'var(--line)' : 'color-mix(in oklch, var(--accent) 33%, transparent)'}`,
-              background: loading ? 'transparent' : 'color-mix(in oklch, var(--accent) 5%, transparent)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              letterSpacing: '0.14em',
-              cursor: loading ? 'wait' : 'pointer',
-            }}
-          >
-            {loading ? 'LOADING…' : `SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div className="px-4 pt-2 pb-1 text-center">
-          <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
-        </div>
-      )}
+      <LoadMoreButton
+        show={nextBatch > 0}
+        label={`SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+        loading={loading}
+        error={error}
+        onClick={loadMore}
+      />
     </>
   );
 }

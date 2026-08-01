@@ -9,38 +9,41 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Lbl, Mono, tierLabel, type Tier } from './primitives';
+import { abbrUsdStr } from '@/lib/format';
 
 interface VelocityPoint {
   day: string;
   starter: number;
+  great: number;
   premium: number;
   ultra: number;
   adventure: number;
+  outlaw: number;
 }
 
-const TIERS: Array<{ key: 'starter' | 'premium' | 'ultra' | 'adventure'; label: Tier; color: string; gradientId: string }> = [
+type VKey = 'starter' | 'great' | 'premium' | 'ultra' | 'adventure' | 'outlaw';
+
+const TIERS: Array<{ key: VKey; label: Tier; color: string; gradientId: string }> = [
   { key: 'starter',   label: 'Starter',   color: 'var(--tier-blue)',    gradientId: 'velocity-starter' },
+  { key: 'great',     label: 'Great',     color: 'var(--tier-green)',   gradientId: 'velocity-great' },
   { key: 'premium',   label: 'Premium',   color: 'var(--accent)',       gradientId: 'velocity-premium' },
   { key: 'ultra',     label: 'Ultra',     color: 'var(--tier-magenta)', gradientId: 'velocity-ultra'   },
   { key: 'adventure', label: 'Adventure', color: 'var(--tier-cyan)',    gradientId: 'velocity-adventure' },
+  { key: 'outlaw',    label: 'Outlaw',    color: 'var(--tier-violet)',  gradientId: 'velocity-outlaw' },
 ];
 
 // Pack USD price per tier — sourced from scripts/config.ts GACHA_CONTRACTS.
 // Used to convert raw pull counts into dollar volume so low-count high-price
 // tiers (Adventure $150, Ultra $1250) aren't visually flattened next to the
 // high-count Starter ($50) stream.
-const TIER_PRICE_USD: Record<'starter' | 'premium' | 'ultra' | 'adventure', number> = {
+const TIER_PRICE_USD: Record<VKey, number> = {
   starter:   50,
+  great:     100,
   premium:   250,
   ultra:     1250,
   adventure: 150,
+  outlaw:    500,
 };
-
-function abbrUsd(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${Math.round(n).toLocaleString('en-US')}`;
-}
 
 /* Bucket label formatter. SQL emits buckets in UTC ("YYYY-MM-DD" daily or
  * "YYYY-MM-DD HH:00" hourly), so we parse as UTC first, then format in the
@@ -107,15 +110,24 @@ export default function VelocityChart({
   // Compute cumulative stacked y per day in USD volume (pulls × tier price)
   // so the visible band height reflects each tier's actual revenue weight,
   // not raw pull count. Peak is the highest total stack across the window.
-  type Stack = { s: number; p: number; u: number; a: number };
+  // Cumulative stack order: starter → great → premium → ultra → adventure → outlaw.
+  type Stack = { s: number; g: number; p: number; u: number; a: number; o: number };
   const stacked: Stack[] = data.map(d => {
     const sV = d.starter   * TIER_PRICE_USD.starter;
+    const gV = d.great     * TIER_PRICE_USD.great;
     const pV = d.premium   * TIER_PRICE_USD.premium;
     const uV = d.ultra     * TIER_PRICE_USD.ultra;
     const aV = d.adventure * TIER_PRICE_USD.adventure;
-    return { s: sV, p: sV + pV, u: sV + pV + uV, a: sV + pV + uV + aV };
+    const oV = d.outlaw    * TIER_PRICE_USD.outlaw;
+    const s = sV;
+    const g = s + gV;
+    const p = g + pV;
+    const u = p + uV;
+    const a = u + aV;
+    const o = a + oV;
+    return { s, g, p, u, a, o };
   });
-  const peak = Math.max(1, ...stacked.map(s => s.a));
+  const peak = Math.max(1, ...stacked.map(s => s.o));
   const dx = data.length > 1 ? W / (data.length - 1) : W;
 
   function pathFor(top: (s: Stack) => number, bottom: (s: Stack) => number) {
@@ -139,9 +151,11 @@ export default function VelocityChart({
   }
 
   const starterArea   = pathFor(s => s.s, () => 0);
-  const premiumArea   = pathFor(s => s.p, s => s.s);
+  const greatArea     = pathFor(s => s.g, s => s.s);
+  const premiumArea   = pathFor(s => s.p, s => s.g);
   const ultraArea     = pathFor(s => s.u, s => s.p);
   const adventureArea = pathFor(s => s.a, s => s.u);
+  const outlawArea    = pathFor(s => s.o, s => s.a);
 
   function onMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -159,13 +173,16 @@ export default function VelocityChart({
   const hoveredVolumes = hovered
     ? {
         starter:   hovered.starter   * TIER_PRICE_USD.starter,
+        great:     hovered.great     * TIER_PRICE_USD.great,
         premium:   hovered.premium   * TIER_PRICE_USD.premium,
         ultra:     hovered.ultra     * TIER_PRICE_USD.ultra,
         adventure: hovered.adventure * TIER_PRICE_USD.adventure,
+        outlaw:    hovered.outlaw    * TIER_PRICE_USD.outlaw,
       }
     : null;
   const hoveredTotal = hoveredVolumes
-    ? hoveredVolumes.starter + hoveredVolumes.premium + hoveredVolumes.ultra + hoveredVolumes.adventure
+    ? hoveredVolumes.starter + hoveredVolumes.great + hoveredVolumes.premium
+        + hoveredVolumes.ultra + hoveredVolumes.adventure + hoveredVolumes.outlaw
     : 0;
   // Tooltip percent-left within the chart, flipped to the left side when the
   // cursor is past 65% so it doesn't clip the right edge.
@@ -200,6 +217,10 @@ export default function VelocityChart({
             <stop offset="0" stopColor="oklch(0.72 0.14 240)" stopOpacity="0.5" />
             <stop offset="1" stopColor="oklch(0.72 0.14 240)" stopOpacity="0.05" />
           </linearGradient>
+          <linearGradient id="velocity-great" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="oklch(0.80 0.15 150)" stopOpacity="0.5" />
+            <stop offset="1" stopColor="oklch(0.80 0.15 150)" stopOpacity="0.05" />
+          </linearGradient>
           <linearGradient id="velocity-premium" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor="oklch(0.82 0.16 85)" stopOpacity="0.55" />
             <stop offset="1" stopColor="oklch(0.82 0.16 85)" stopOpacity="0.05" />
@@ -212,6 +233,10 @@ export default function VelocityChart({
             <stop offset="0" stopColor="oklch(0.78 0.14 200)" stopOpacity="0.55" />
             <stop offset="1" stopColor="oklch(0.78 0.14 200)" stopOpacity="0.04" />
           </linearGradient>
+          <linearGradient id="velocity-outlaw" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="oklch(0.70 0.16 295)" stopOpacity="0.55" />
+            <stop offset="1" stopColor="oklch(0.70 0.16 295)" stopOpacity="0.04" />
+          </linearGradient>
         </defs>
         <g stroke="var(--line-soft)" strokeDasharray="2 4">
           <line x1="0" y1={H * 0.25} x2={W} y2={H * 0.25} />
@@ -219,13 +244,17 @@ export default function VelocityChart({
           <line x1="0" y1={H * 0.75} x2={W} y2={H * 0.75} />
         </g>
         <path d={starterArea}   fill="url(#velocity-starter)"   />
+        <path d={greatArea}     fill="url(#velocity-great)"     />
         <path d={premiumArea}   fill="url(#velocity-premium)"   />
         <path d={ultraArea}     fill="url(#velocity-ultra)"     />
         <path d={adventureArea} fill="url(#velocity-adventure)" />
+        <path d={outlawArea}    fill="url(#velocity-outlaw)"    />
         <path d={lineFor(s => s.s)} fill="none" stroke="oklch(0.72 0.14 240)" strokeWidth="1" />
+        <path d={lineFor(s => s.g)} fill="none" stroke="var(--tier-green)" strokeWidth="1" />
         <path d={lineFor(s => s.p)} fill="none" stroke="var(--accent)" strokeWidth="1.2" />
         <path d={lineFor(s => s.u)} fill="none" stroke="var(--tier-magenta)" strokeWidth="1" />
         <path d={lineFor(s => s.a)} fill="none" stroke="var(--tier-cyan)" strokeWidth="1" />
+        <path d={lineFor(s => s.o)} fill="none" stroke="var(--tier-violet)" strokeWidth="1" />
         {/* Hover cursor: vertical line + dot at the top of the stack */}
         {hoverIdx != null && (
           <g pointerEvents="none">
@@ -241,7 +270,7 @@ export default function VelocityChart({
             />
             <circle
               cx={hoverIdx * dx}
-              cy={H - (stacked[hoverIdx].a / peak) * H}
+              cy={H - (stacked[hoverIdx].o / peak) * H}
               r="2.5"
               fill="var(--fg)"
               stroke="var(--bg-2)"
@@ -285,7 +314,7 @@ export default function VelocityChart({
                 <div key={t.key} className="flex items-center justify-between gap-3">
                   <Mono style={{ fontSize: 9.5, color: t.color }}>● {tierLabel(t.label)}</Mono>
                   <Mono style={{ fontSize: 9.5, color: vol > 0 ? 'var(--fg)' : 'var(--fg-4)' }}>
-                    {abbrUsd(vol)}
+                    {abbrUsdStr(vol)}
                     <span style={{ color: 'var(--fg-4)', marginLeft: 4 }}>· {pulls.toLocaleString('en-US')}</span>
                   </Mono>
                 </div>
@@ -298,7 +327,7 @@ export default function VelocityChart({
           >
             <Mono style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.1em' }}>VOLUME</Mono>
             <Mono style={{ fontSize: 10, color: 'var(--accent)' }}>
-              {abbrUsd(hoveredTotal)}
+              {abbrUsdStr(hoveredTotal)}
             </Mono>
           </div>
         </div>

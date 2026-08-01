@@ -4,38 +4,34 @@ Live, on-chain analytics for the **MnStr** card gacha (graded Pokémon TCG + One
 
 ## Stack
 - Next.js 16 (App Router, ISR via `export const revalidate`), React 19, Tailwind v4.
-- `postgres` (postgres.js) — single client at `db/client.ts`. DB: `postgres://mnstr:mnstr_local@localhost:5432/mnstr`.
+- `postgres` (postgres.js) — single client at `db/client.ts` (10s connect / 30s statement timeouts). DB: `postgres://mnstr:mnstr_local@localhost:5432/mnstr`.
 - Indexer = plain TS run with `tsx` under `scripts/` (entry `scripts/index.ts`).
-- `sharp` for image generation (favicons/OG). Charts use **Recharts** (client-only, mounted-gated).
+- `sharp` for image generation (favicons/OG). Detail-page charts use **Recharts** (client-only, mounted-gated, loaded via `*.lazy.tsx` next/dynamic wrappers so the chunk stays out of initial bundles); Pulse charts (Velocity/HouseFlow) are bespoke inline SVG.
+- Shared domain/UI modules: `lib/tiers.ts` (canonical tier economics — see gotchas), `lib/format.ts` (shortAddr/agoShort/usd/abbrUsd — don't re-implement per component), `components/usePagedList.ts` + `LoadMoreButton` (all Load More lists), `lib/api.ts` (`apiHandler` error contract + param regexes for API routes).
 
 ## Run locally
 - Dashboard: `npm run dev` (port **3004**).
-- Indexer loop: `npm run poller`. One-off CLI: `npm run cli <cmd>` (see `scripts/index.ts` for commands: backfill, enrich, restatus, refresh-fmvs, poll-once, …).
-- Migrations: numbered `sql/NNN_*.sql`, applied in order with `psql -f` (`npm run db:migrate` runs all).
+- Indexer loop: `npm run poller`. One-off CLI: `npm run cli <cmd>` (see `scripts/index.ts` for commands: backfill, enrich, restatus, refresh-fmvs, poll-once, link-sellbacks, …).
+- Migrations: numbered `sql/NNN_*.sql`, applied by the tracked runner `npm run db:migrate` (`scripts/migrate.ts`: `schema_migrations` table, per-file transactions, stops on first failure; auto-baselines a pre-existing DB without re-running files — never re-apply migrations with raw `psql -f`, sql/018-style backfills are not all re-run-safe).
+- Tests: `npm run test` (vitest — payout linker, ABI decoders, usdm-flow classification, tier-config↔SQL drift tripwire). `npm run typecheck`. `npm run predeploy` chains typecheck + test + build.
 
 ## Deploy (Hetzner, same box as offshore)
-Host `root@178.105.127.121`, app at **`/opt/mnstr-dashboard`**, served by PM2 (`mnstr-dashboard` on :3010 behind nginx+TLS; `mnstr-poller` is the indexer). Recipe:
-```
-npm run build                       # build locally first — catch errors before shipping
-rsync -az --delete \
-  --exclude '.env' --exclude 'node_modules' --exclude '.next' \
-  --exclude '.git' --exclude 'design' --exclude 'public/img-cache' \
-  ./ root@178.105.127.121:/opt/mnstr-dashboard/
-ssh root@178.105.127.121 'cd /opt/mnstr-dashboard && npm run build && pm2 reload mnstr-dashboard'
-```
+Host `root@178.105.127.121`, app at **`/opt/mnstr-dashboard`**, served by PM2 (`mnstr-dashboard` on :3010 behind nginx+TLS; `mnstr-poller` is the indexer). Use **`deploy/deploy.sh`** (`--with-poller` for indexer changes) — it gates on `npm run predeploy`, rsyncs, runs the tracked migrations, rebuilds remotely, and reloads PM2. PM2 topology is committed at `deploy/ecosystem.config.cjs`.
 - The box rebuilds too (`.next` is excluded from rsync). Expect a few seconds of 502 during reload — it recovers.
 - `.env` lives only on the box (not in rsync). `design/` is local-only (excluded) — put scratch/marketing assets there.
-- For indexer/script changes also `pm2 restart mnstr-poller`. Migrations: rsync the `sql/` file, then `psql ... -f sql/NNN_*.sql` on the box.
+- ⚠️ Pending box-side hardening (approved, not yet applied): bind the app to loopback (`next start -H 127.0.0.1`, currently :3010 answers on the public IP), ufw audit for 3010/5432, nightly `pg_dump` (no backup exists — `fmv_at_pull_usd` + `card_fmv_snapshots` are unrecoverable), external pinger on `/api/health`, nginx `limit_req` for `/api/`.
 
 ## Indexing (Alchemy-only)
-- WS listener (`scripts/ws.ts`, eth_subscribe) is realtime; `scripts/poll.ts` is a 5-min reconcile via Alchemy `eth_getLogs`. Keys in `.env`.
-- **Do not fail over to the MegaETH RPC** — Alchemy only (user's call). Alchemy quota is account-wide + monthly; when hit it returns plaintext "Monthly capacity limit exceeded" and the poller silently stalls (pm2 "online" but every call errors).
+- WS listener (`scripts/ws.ts`, eth_subscribe) is realtime; `scripts/poll.ts` is a 5-min reconcile. Reconcile transports: **Etherscan v2 REST** for the event backfills (pulls/sellbacks/marketplace/redemptions, `ETHERSCAN_KEY`, 5 RPS) and **Alchemy** for USDm flows, block timestamps, head, and the WS. Keys in `.env`.
+- **Do not fail over to the MegaETH RPC** — Alchemy only (user's call). Alchemy quota is account-wide + monthly; when hit it returns plaintext "Monthly capacity limit exceeded".
+- **Stall detection**: a fully-successful reconcile writes `indexer_state.last_poll_ok`; `/api/health` 503s when it's >15 min old (point external pingers there), the UI LIVE chip/stream header flip to STALE/OFFLINE off the same signal, and `pollLoop` sends one Telegram alert after 3 consecutive failures + one on recovery (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` in `.env`, same bot as offshore/mica; inert when unset).
+- **Reconcile cursors** are all `indexer_state` keys advanced only by the reconcile itself + a lookback overlap (pulls included — its cursor is NOT MAX(block_number), which the WS path would advance past its own gaps). WS handles `removed: true` reorg logs by deleting the reverted row.
 - `mainnet.megaeth.com/rpc` = mainnet (chainId 4326). `carrot.megaeth.com` = **testnet** (6343) — never index against it.
 
 ## Domain gotchas (these cause real bugs)
-- **Buyback rate is per-tier, NOT a flat 0.85:** Starter 0.87 / Monster(Premium) 0.91 / Ultra 0.95 / Adventure 0.90. "85%" is marketing floor. Encoded in `sql/006` + the `pulls_enriched` view.
+- **Buyback rate is per-tier, NOT a flat 0.85:** Starter 0.87 / Monster(Premium) 0.91 / Ultra 0.95 / Adventure 0.90 / Great 0.90 / Outlaw 0.92. "85%" is marketing floor. **Source of truth is `lib/tiers.ts`** (config.ts/buyback/UI all derive from it); the SQL CASE arms in the latest view migration are a hand-written mirror guarded by `tests/tiers.test.ts` — adding a tier means lib/tiers.ts + a new view migration, and the test fails until both agree. `checkPackDrift` also compares live /packs prices+rates against lib/tiers hourly.
 - **Two FMVs per pull:** `fmv_at_pull_usd` = frozen at first enrich (use for "FMV at last pull", paper P&L, big-hit banner); `fmv_usd` = current, overwritten on every enrich + hourly by `scripts/fmv.ts` (logs to `card_fmv_snapshots`). They diverge — pick deliberately.
-- **P&L model:** `usdm_flows` (operator-routed USDm in/out, the realized ground truth) → `wallet_pnl` view. `total_net = realized_net + held_fmv + mp_held_fmv` (raw FMV, not buyback). Marketplace cash is already counted (buyers pay the operator EOA); marketplace is custodial (protocol sells its own vault inventory — no player-seller payout).
+- **P&L model:** `usdm_flows` (operator-routed USDm in/out, the realized ground truth) → `wallet_pnl` — a **MATERIALIZED VIEW** since sql/022 (refreshed CONCURRENTLY at the end of every poll cycle; its inputs only move on the reconcile, so it's never staler than one cycle). `total_net = realized_net + held_fmv + mp_held_fmv` (raw FMV, not buyback). Marketplace cash is already counted (buyers pay the operator EOA); marketplace is custodial (protocol sells its own vault inventory — no player-seller payout).
 - **Pooled claims:** `cards.slug ↔ serial_number` is 1:1 but many pulls share one slug; serial-level ownership is NOT recoverable from chain.
 - **No real marketplace seller.** The protocol sells from its own vault, so there's no on-chain player-seller. Card/wallet/marketplace activity render the seller as **"MnStr vault"** (NULL `seller_wallet`) — do NOT re-introduce the old "most-recent prior puller" inference (with pooled claims it mislabeled the last puller of a slug as the seller of every later sale; there's no `sale_sell` side for wallets). `mp_held_fmv` credits the latest buyer as current owner; `in_vault` (card page) is true if any pull is `holding` OR the serial was sold on the marketplace.
 - **Redemption is off-chain — the `'redeemed'` path is effectively dead.** `NFTRedeemed` (`0x14c9b4d4…`) has NEVER fired on-chain (0 from-deploy on all gacha contracts AND 0 in a global all-contract scan); cards aren't NFTs, physical shipment is an off-chain MnStr action with no chain footprint, and the public API doesn't expose it. So a pull only ever shows `holding` or `sold_back`, the `redemptions` table stays empty, and "redeemed vs still-holding" is not determinable (both mean the wallet owns the asset at FMV, so `total_net` is unaffected). The scan is left in place in case mnstr starts emitting it.
@@ -50,4 +46,7 @@ ssh root@178.105.127.121 'cd /opt/mnstr-dashboard && npm run build && pm2 reload
 - **Enrich↔card-assignment race:** the on-chain `PlayAssigned` carries no card; the card slug/FMV/user come from the MnStr API (`/gacha/pulls/{playId}`), which mnstr populates a few seconds after the pull. The WS fast-enrich fires ~5s out and retries on a backoff; `pollOnce` also runs `enrichRecentMissing()` (re-enriches card-less pulls from the last 6h every cycle) so the newest pulls fill within minutes instead of waiting `restatusAgeHours` (24h). A pull can therefore appear card-less briefly; ~90 old pulls are permanently card-less (mnstr never assigned one).
 - Single **Foil** theme only (Arcade was removed). Colors are CSS vars (`--bg`, `--accent`, …) in `app/globals.css`.
 - Explorer links: `https://mega.etherscan.io/tx/{hash}`.
+- **OBS/stream embed** is the dedicated bare route `/embed/live` (statically rendered, noindexed) — the old `?embed=1` query param is gone (it forced the whole Shell through useSearchParams and de-static'd every page).
+- **Marketplace premium** ("+X% vs buyback") uses the FMV **as of the sale** (latest `card_fmv_snapshots` ≤ bought_at); "≈"-prefixed badges are pre-snapshot sales approximated with current FMV.
+- API routes share `lib/api.ts` `apiHandler` (generic 500 `{error}`, no leaked messages) + 400s for bad `[addr]`/`[slug]`/`[tier]` params; paginated routes clamp offsets via `clampOffset`.
 - Don't commit or push unless asked. Default to deploy-on-request.

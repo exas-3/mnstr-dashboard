@@ -1,18 +1,15 @@
 import { Mono, TierTag, type Tier } from '../primitives';
 import type { TierStats } from '@/lib/queries';
+import { abbrUsdStr } from '@/lib/format';
 
 const COLOR: Record<string, string> = {
   Starter:   'var(--tier-blue)',
   Premium:   'var(--accent)',
   Ultra:     'var(--tier-magenta)',
   Adventure: 'var(--tier-cyan)',
+  Great:     'var(--tier-green)',
+  Outlaw:    'var(--tier-violet)',
 };
-
-function abbrUsd(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${Math.round(n).toLocaleString('en-US')}`;
-}
 
 export default function TierStrip({ stats }: { stats: TierStats[] }) {
   // Bars weight by USD volume (pulls × pack price), not raw pull count, so
@@ -46,7 +43,7 @@ export default function TierStrip({ stats }: { stats: TierStats[] }) {
               </div>
               <div className="mt-1 flex justify-between">
                 <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
-                  {abbrUsd(volume)} vol · {t.pulls.toLocaleString('en-US')} pulls
+                  {abbrUsdStr(volume)} vol · {t.pulls.toLocaleString('en-US')} pulls
                 </Mono>
                 <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
                   EV ${t.evUsd.toFixed(t.evUsd < 100 ? 2 : 0)}

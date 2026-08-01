@@ -1,20 +1,7 @@
 import Link from 'next/link';
 import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
 import type { CardHistoryEntry } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
+import { shortAddr, usd } from '@/lib/format';
 
 /* UTC-fixed manual date format. Same reason as HitRowItem: Node ICU and
  * Chrome V8 ICU disagree on Intl.DateTimeFormat output for subtle reasons

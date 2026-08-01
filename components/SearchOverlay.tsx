@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mono } from './primitives';
 import { cardImageUrl } from '@/lib/img';
 import CardThumb from './CardThumb';
+import { shortAddr, abbrUsdStr } from '@/lib/format';
 
 interface WalletHit {
   wallet: string;
@@ -49,16 +50,9 @@ const QUICK_LINKS: ResultItem[] = [
   { kind: 'nav', key: 'nav-marketplace', href: '/marketplace', primary: 'Marketplace', secondary: 'secondary trades' },
 ];
 
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
-
-function abbrUsd(n: number): string {
-  const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${Math.round(abs)}`;
+/** Stable DOM id per result row — combobox aria-activedescendant target. */
+function optionId(key: string): string {
+  return `search-opt-${key}`;
 }
 
 export default function SearchOverlay({
@@ -70,9 +64,11 @@ export default function SearchOverlay({
 }) {
   const router = useRouter();
   const ref = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
 
   // Reset state every time the overlay opens.
@@ -80,36 +76,100 @@ export default function SearchOverlay({
     if (open) {
       setQ('');
       setResults(null);
+      setFailed(false);
       setSelectedIdx(0);
       // Focus on next tick, after the input is in the DOM.
       requestAnimationFrame(() => ref.current?.focus());
     }
   }, [open]);
 
-  // Debounced fetch on `q` change.
+  // While open: remember the opener, trap Tab inside the panel, close on Esc
+  // from anywhere (focus can sit on a result link), restore focus on close.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = panel.querySelectorAll<HTMLElement>(
+        'a[href], button, input, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      prev?.focus();
+    };
+  }, [open, onClose]);
+
+  // Lock body scroll behind the overlay.
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  // Debounced fetch on `q` change. Each run owns an AbortController so a slow
+  // out-of-order response can't overwrite fresher results; as a second guard we
+  // only accept a response whose echoed `q` matches the query we asked for.
   useEffect(() => {
     if (!open) return;
     const trimmed = q.trim();
     if (trimmed.length < 2) {
       setResults(null);
       setLoading(false);
+      setFailed(false);
       return;
     }
     setLoading(true);
+    setFailed(false);
+    const ctrl = new AbortController();
     const id = window.setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
           cache: 'no-store',
+          signal: ctrl.signal,
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setFailed(true);
+          setLoading(false);
+          return;
+        }
         const json = (await res.json()) as SearchResponse;
+        if (json.q !== trimmed) return; // stale echo — a newer run owns the state
         setResults(json);
         setSelectedIdx(0);
-      } catch {} finally {
+        setLoading(false);
+      } catch (err) {
+        // Aborts are expected (newer keystroke / overlay closed) — stay silent.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setFailed(true);
         setLoading(false);
       }
     }, 180);
-    return () => window.clearTimeout(id);
+    return () => {
+      window.clearTimeout(id);
+      ctrl.abort();
+    };
   }, [q, open]);
 
   // Flatten results into a single keyboard-navigable list.
@@ -122,7 +182,7 @@ export default function SearchOverlay({
       href: `/wallets/${w.wallet}`,
       primary: w.handle ? `@${w.handle}` : shortAddr(w.wallet),
       secondary: w.handle ? shortAddr(w.wallet) : undefined,
-      trailing: `${w.net >= 0 ? '+' : ''}${abbrUsd(w.net)} · ${w.pulls} pulls`,
+      trailing: `${w.net >= 0 ? '+' : ''}${abbrUsdStr(w.net)} · ${w.pulls} pulls`,
     }));
     const cardItems: ResultItem[] = results.cards.map(c => ({
       kind: 'card',
@@ -130,11 +190,19 @@ export default function SearchOverlay({
       href: `/cards/${c.slug}`,
       primary: c.title ?? c.slug,
       secondary: [c.card_set, c.grading].filter(Boolean).join(' · ') || undefined,
-      trailing: c.fmv != null ? `${abbrUsd(c.fmv)} · ${c.pulls}×` : `${c.pulls}×`,
+      trailing: c.fmv != null ? `${abbrUsdStr(c.fmv)} · ${c.pulls}×` : `${c.pulls}×`,
       imageUrl: cardImageUrl(c.slug, c.image_front, 120),
     }));
     return [...walletItems, ...cardItems];
   }, [results, q]);
+
+  // Keep the keyboard-highlighted row visible while arrowing through results.
+  useEffect(() => {
+    if (!open) return;
+    const sel = items[selectedIdx];
+    if (!sel) return;
+    document.getElementById(optionId(sel.key))?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIdx, items, open]);
 
   // Keyboard handling (Esc / ↑ / ↓ / Enter). Bound to the input so it only
   // fires when the overlay has focus.
@@ -167,7 +235,8 @@ export default function SearchOverlay({
   if (!open) return null;
 
   const hasQuery = q.trim().length >= 2;
-  const showEmpty = hasQuery && !loading && items.length === 0;
+  const showEmpty = hasQuery && !loading && !failed && items.length === 0;
+  const activeId = items[selectedIdx] ? optionId(items[selectedIdx].key) : undefined;
 
   // Group results into Wallets / Cards (or single Quick links group for empty state).
   const walletGroup = items.filter(i => i.kind === 'wallet');
@@ -177,6 +246,10 @@ export default function SearchOverlay({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 p-4 sm:p-12" onClick={onClose}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search"
         className="mx-auto max-w-2xl"
         style={{
           background: 'var(--bg-2)',
@@ -202,6 +275,11 @@ export default function SearchOverlay({
             placeholder="wallet handle, 0x…, card title, set, serial #"
             className="w-full bg-transparent text-sm outline-none"
             style={{ color: 'var(--fg)', fontFamily: 'var(--font-sans)' }}
+            role="combobox"
+            aria-expanded={items.length > 0}
+            aria-controls="search-results"
+            aria-activedescendant={activeId}
+            aria-autocomplete="list"
           />
           <span
             style={{
@@ -219,7 +297,7 @@ export default function SearchOverlay({
         </div>
 
         {/* Results — scrollable */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div id="search-results" role="listbox" aria-label="Search results" style={{ overflowY: 'auto', flex: 1 }}>
           {!hasQuery && (
             <ResultGroup label="QUICK LINKS">
               {navGroup.map((item, i) => (
@@ -237,6 +315,14 @@ export default function SearchOverlay({
             <div className="px-4 py-6 text-center">
               <Mono style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>
                 SEARCHING…
+              </Mono>
+            </div>
+          )}
+
+          {hasQuery && failed && (
+            <div className="px-4 py-6 text-center" role="status">
+              <Mono style={{ fontSize: 10, color: 'var(--negative)', letterSpacing: '0.14em' }}>
+                SEARCH FAILED — KEEP TYPING TO RETRY
               </Mono>
             </div>
           )}
@@ -297,8 +383,9 @@ export default function SearchOverlay({
 
 function ResultGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div role="group" aria-label={label}>
       <div
+        aria-hidden
         className="px-3 py-1.5"
         style={{
           background: 'var(--bg)',
@@ -325,6 +412,9 @@ function ResultRow({
     <Link
       href={item.href}
       onClick={onClose}
+      id={optionId(item.key)}
+      role="option"
+      aria-selected={selected}
       className="grid items-center gap-2.5 px-3 py-2.5"
       style={{
         gridTemplateColumns: item.imageUrl ? '32px 1fr auto' : '1fr auto',

@@ -3,21 +3,7 @@ import { Mono, StatusPill, TierTag, type Tier } from '../primitives';
 import { premiumFraction, type PremiumMode } from '@/lib/buyback';
 import LocalTime from '../LocalTime';
 import type { CardActivity } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
-
+import { shortAddr, usd } from '@/lib/format';
 
 export default function CardActivityRow({
   ev,

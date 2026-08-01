@@ -19,6 +19,7 @@
  * events (WS + reconcile) just no-op the second time.
  */
 
+import { sql } from '../db/client.js';
 import { config, GACHA_CONTRACTS, MARKETPLACE_ADDRESS,
   PLAY_ASSIGNED_TOPIC, NFT_SOLD_BACK_TOPIC,
   CARD_BOUGHT_TOPIC, CARD_PRICE_UPDATED_TOPIC,
@@ -94,17 +95,25 @@ async function fetchBlockTimestamp(blockHex: string): Promise<number> {
   // didn't retry — keeping the retry tight (3 attempts, ~250ms backoff) since
   // we're on the WS hot path and reconcile will catch anything we drop.
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(config.alchemyRpc, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getBlockByNumber',
-        params: [blockHex, false],
-      }),
-    });
-    const j = await res.json();
+    let j: { result?: { timestamp?: string } };
+    try {
+      const res = await fetch(config.alchemyRpc, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getBlockByNumber',
+          params: [blockHex, false],
+        }),
+        // Tight timeout — this is the WS hot path; reconcile fills any drop.
+        signal: AbortSignal.timeout(10_000),
+      });
+      j = await res.json();
+    } catch {
+      await new Promise(r => setTimeout(r, 250 * (attempt + 1)));
+      continue;
+    }
     const tsHex = j?.result?.timestamp;
     if (tsHex && tsHex !== '0x0') {
       const ts = parseInt(tsHex, 16);
@@ -136,10 +145,36 @@ async function toRawLog(wsLog: AlchemyWsLog): Promise<RawLog> {
   };
 }
 
+/* Chain reorg: the node re-emits a previously-delivered log with removed=true,
+ * meaning the block it lived in is no longer canonical. Revert the row it
+ * created (by its natural key, scoped to the exact tx so a re-included event
+ * in a different block isn't deleted). Rare on MegaETH, but silently keeping
+ * a phantom pull would corrupt P&L. */
+async function handleRemovedLog(wsLog: AlchemyWsLog): Promise<void> {
+  const topic0 = wsLog.topics[0];
+  const txHash = wsLog.transactionHash;
+  const logIndex = parseInt(wsLog.logIndex, 16);
+  if (topic0 === PLAY_ASSIGNED_TOPIC) {
+    const requestId = BigInt(wsLog.topics[2]).toString();
+    const r = await sql`DELETE FROM pulls WHERE request_id = ${requestId} AND tx_hash = ${txHash}`;
+    console.warn(`[ws] REORG revert PlayAssigned req=${requestId} tx=${txHash} (deleted ${r.count ?? 0})`);
+  } else if (topic0 === NFT_SOLD_BACK_TOPIC) {
+    const requestId = BigInt(wsLog.topics[2]).toString();
+    const r = await sql`DELETE FROM sellbacks WHERE request_id = ${requestId} AND tx_hash = ${txHash}`;
+    console.warn(`[ws] REORG revert NFTSoldBack req=${requestId} tx=${txHash} (deleted ${r.count ?? 0})`);
+  } else if (topic0 === CARD_BOUGHT_TOPIC) {
+    const r = await sql`DELETE FROM marketplace_sales WHERE tx_hash = ${txHash} AND log_index = ${logIndex}`;
+    console.warn(`[ws] REORG revert CardBought tx=${txHash}#${logIndex} (deleted ${r.count ?? 0})`);
+  } else if (topic0 === CARD_PRICE_UPDATED_TOPIC) {
+    const r = await sql`DELETE FROM marketplace_price_history WHERE tx_hash = ${txHash} AND log_index = ${logIndex}`;
+    console.warn(`[ws] REORG revert CardPriceUpdated tx=${txHash}#${logIndex} (deleted ${r.count ?? 0})`);
+  }
+}
+
 async function handleLog(wsLog: AlchemyWsLog): Promise<void> {
-  if (wsLog.removed) return;
   const topic0 = wsLog.topics[0];
   if (!TOPIC_SET.has(topic0)) return;
+  if (wsLog.removed) return handleRemovedLog(wsLog);
   const raw = await toRawLog(wsLog);
   const address = wsLog.address.toLowerCase();
 
@@ -215,10 +250,16 @@ function connect(): void {
   const ws = new WebSocket(config.alchemyWsUrl);
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let subscriptionId: string | undefined;
+  // Half-open detection: a NAT/proxy can silently drop the connection so our
+  // sends "succeed" but nothing ever comes back and 'close' never fires. Any
+  // inbound frame (including the heartbeat ack) counts as life; the heartbeat
+  // force-closes the socket when the line has been silent too long, and the
+  // close handler reconnects with backoff.
+  let lastMessageAt = Date.now();
 
   ws.addEventListener('open', () => {
     console.log('[ws] open — subscribing to logs');
-    backoff = RECONNECT_MIN_MS;
+    lastMessageAt = Date.now();
     const subMsg = {
       jsonrpc: '2.0',
       id: 1,
@@ -236,13 +277,20 @@ function connect(): void {
     ws.send(JSON.stringify(subMsg));
 
     // Heartbeat: send a no-op request periodically; if the socket is dead the
-    // close handler fires and triggers reconnect.
+    // close handler fires and triggers reconnect. Also enforces the silence
+    // deadline for half-open sockets (see lastMessageAt above).
     heartbeat = setInterval(() => {
+      if (Date.now() - lastMessageAt > HEARTBEAT_MS * 2.5) {
+        console.warn(`[ws] no inbound frames for ${Math.round((Date.now() - lastMessageAt) / 1000)}s — forcing reconnect`);
+        try { ws.close(); } catch {}
+        return;
+      }
       try { ws.send(JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'net_version', params: [] })); } catch {}
     }, HEARTBEAT_MS);
   });
 
   ws.addEventListener('message', (ev: MessageEvent) => {
+    lastMessageAt = Date.now();
     let parsed: unknown;
     try {
       parsed = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString());
@@ -252,19 +300,25 @@ function connect(): void {
     }
     const msg = parsed as SubscribeAck | SubscriptionMessage | { id: number; result?: unknown };
 
-    // Subscription ack
+    // Subscription ack. Only NOW is the connection known-good: resetting the
+    // backoff on 'open' let a quota-exhausted key (open succeeds, subscribe
+    // errors) hot-loop reconnects at the minimum delay forever.
     if ('id' in msg && msg.id === 1 && 'result' in msg && typeof (msg as SubscribeAck).result === 'string') {
       subscriptionId = (msg as SubscribeAck).result;
+      backoff = RECONNECT_MIN_MS;
       console.log(`[ws] subscribed (${subscriptionId?.slice(0, 14)}…) — ${ADDRESSES.length} addrs · 4 topics`);
       return;
     }
+    // Heartbeat response — success or error, it only proves liveness. Must be
+    // checked BEFORE the generic error branch: an error reply to the id-99
+    // net_version probe (e.g. quota exceeded) is not a subscribe failure and
+    // must not close an otherwise-healthy subscription.
+    if ('id' in msg && msg.id === 99) return;
     if ('error' in msg && msg.error) {
       console.error(`[ws] subscribe error:`, (msg as SubscribeAck).error);
       ws.close();
       return;
     }
-    // Heartbeat ack — ignore
-    if ('id' in msg && msg.id === 99) return;
 
     if ('method' in msg && msg.method === 'eth_subscription') {
       const log = (msg as SubscriptionMessage).params.result;

@@ -23,7 +23,7 @@ async function downloadOne(row: Row, force: boolean): Promise<'ok' | 'skip' | 'e
   const dest = join(CACHE_DIR, `${row.slug}.jpg`);
   if (!force && existsSync(dest)) return 'skip';
   try {
-    const res = await fetch(row.image_front, { cache: 'no-store' });
+    const res = await fetch(row.image_front, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
     if (!res.ok) {
       console.warn(`  HTTP ${res.status} for ${row.slug}`);
       return 'err';

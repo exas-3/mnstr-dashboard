@@ -1,20 +1,24 @@
 /* Cross-entity search for the top-bar SearchOverlay.
  *
- * Hits the existing wallet + card filter helpers in parallel and returns
- * up to N results per entity. The overlay debounces on the client; this
- * route itself is `no-store` so each keystroke gets fresh data. */
+ * Wallets go through searchWallets — a purpose-built lightweight query (no
+ * spark UNION, no pulls_enriched joins, 10s in-process TTL); the previous
+ * getLeaderboard path recomputed the full ~1s board aggregation per
+ * keystroke on a public endpoint. The overlay debounces on the client. */
 
 import { NextResponse } from 'next/server';
-import { getLeaderboard, getCardsList } from '@/lib/queries';
+import { apiHandler } from '@/lib/api';
+import { searchWallets, getCardsList } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const PER_KIND = 6;
+// Overlong strings are never real searches — trim before they hit LIKE.
+const MAX_Q = 100;
 
-export async function GET(req: Request) {
+export const GET = apiHandler(async (req: Request) => {
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get('q')?.trim() ?? '';
+  const q = (searchParams.get('q')?.trim() ?? '').slice(0, MAX_Q);
 
   if (!q || q.length < 2) {
     return NextResponse.json(
@@ -23,24 +27,17 @@ export async function GET(req: Request) {
     );
   }
 
-  const [board, list] = await Promise.all([
-    getLeaderboard('pnl', 0, PER_KIND, q).catch(() => ({ rows: [], total: 0 })),
-    getCardsList({ view: 'top', tier: 'all', q, page: 0, pageSize: PER_KIND }).catch(() => ({
-      rows: [],
-      total: 0,
-    })),
+  // Errors propagate as a 500 rather than masquerading as an empty result
+  // set — a DB outage should not render as "no matches".
+  const [wallets, list] = await Promise.all([
+    searchWallets(q, PER_KIND),
+    getCardsList({ view: 'top', tier: 'all', q, page: 0, pageSize: PER_KIND }),
   ]);
 
   return NextResponse.json(
     {
       q,
-      wallets: board.rows.map(r => ({
-        wallet: r.wallet,
-        handle: r.handle,
-        net: r.net,
-        spend: r.spend,
-        pulls: r.pulls,
-      })),
+      wallets,
       cards: list.rows.map(c => ({
         slug: c.slug,
         title: c.title,
@@ -53,4 +50,4 @@ export async function GET(req: Request) {
     },
     { headers: { 'cache-control': 'no-store' } },
   );
-}
+});

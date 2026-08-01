@@ -26,7 +26,7 @@ const ITEMS: Array<{ label: string; body: string }> = [
   {
     label: 'P&L formula',
     body:
-      'Net P&L on the wallets leaderboard is realised payouts (sold-back × per-tier buyback rate × FMV) minus USDm spent on packs. Buyback rates: Starter 87% · Monster 91% · Ultra 95% · Adventure 90%.',
+      'Net P&L = realized on-chain cash flow (USDm received from minus paid to the MnStr operator) plus the current MnStr FMV of cards still held, including marketplace buys. Sell-back payouts count at the actual on-chain transfer amount where we could link it; FMV × per-tier buyback rate is only the fallback (Starter 87% · Great 90% · Monster 91% · Ultra 95% · Adventure 90% · Outlaw 92%).',
   },
   {
     label: 'Player EV',

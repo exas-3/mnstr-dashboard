@@ -58,7 +58,7 @@ async function fetchOperatorOutboundUsdm(
     url.searchParams.set('apikey', config.etherscanKey);
 
     await limiter.take();
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(20_000) });
     const j = (await res.json()) as { status: string; message: string; result: EtherscanLog[] | string };
     if (j.status === '0' && j.message === 'No records found') {
       cursor = to + 1;

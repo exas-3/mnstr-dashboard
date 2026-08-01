@@ -12,6 +12,8 @@ const TIER_COLOR: Record<string, string> = {
   Premium:   'var(--accent)',
   Ultra:     'var(--tier-magenta)',
   Adventure: 'var(--tier-cyan)',
+  Great:     'var(--tier-green)',
+  Outlaw:    'var(--tier-violet)',
 };
 
 export default function CardWallTile({ card }: { card: CardListItem }) {

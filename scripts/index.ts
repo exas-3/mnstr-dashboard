@@ -8,13 +8,16 @@ import { refreshCardFmvs } from './fmv.js';
 import { pollLoop, pollOnce } from './poll.js';
 import { snapshotLeaderboard } from './leaderboard.js';
 import { backfillUsdmFlows, auditUsdmDrift, linkSellbacksOnchain } from './usdm-flows.js';
+import { checkPackDrift } from './drift.js';
+import { TIER_NAMES } from '../lib/tiers.js';
 import type { Tier } from './config.js';
 
 function parseTier(arg?: string): Tier | undefined {
   if (!arg) return undefined;
   const t = arg[0].toUpperCase() + arg.slice(1).toLowerCase();
-  if (t === 'Starter' || t === 'Premium' || t === 'Ultra' || t === 'Adventure') return t;
-  throw new Error(`Unknown tier: ${arg} (expected Starter | Premium | Ultra | Adventure)`);
+  const match = TIER_NAMES.find(n => n === t);
+  if (match) return match;
+  throw new Error(`Unknown tier: ${arg} (expected ${TIER_NAMES.join(' | ')})`);
 }
 
 async function main() {
@@ -96,6 +99,11 @@ async function main() {
       case 'link-sellbacks':
         await linkSellbacksOnchain();
         break;
+      case 'check-packs': {
+        const missing = await checkPackDrift();
+        process.exitCode = missing.length > 0 ? 2 : 0;
+        break;
+      }
       default:
         console.log(`Usage:
   cli backfill            [tier]   Fetch on-chain PlayAssigned events from last checkpoint
@@ -115,7 +123,8 @@ async function main() {
   cli backfill-usdm-flows         Index USDm Transfer events involving the operator EOA
   cli reindex-usdm-flows          Re-scan USDm flows from block 0 (full reset)
   cli audit-usdm          [n=20]  Compare DB-derived P&L vs on-chain net per wallet
-  cli link-sellbacks              Attribute each sellback to its on-chain USDm payout`);
+  cli link-sellbacks              Attribute each sellback to its on-chain USDm payout
+  cli check-packs                 Warn if mnstr /packs has a gacha contract not in GACHA_CONTRACTS`);
         process.exit(1);
     }
   } finally {

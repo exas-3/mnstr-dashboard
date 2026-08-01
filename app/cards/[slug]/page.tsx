@@ -12,9 +12,10 @@ import {
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
 import CardHistoryLoadMore from '@/components/cards/CardHistoryLoadMore';
-import CardFmvChart from '@/components/cards/CardFmvChart';
+import CardFmvChart from '@/components/cards/CardFmvChart.lazy';
 import JsonLd from '@/components/JsonLd';
 import { SITE_URL } from '@/lib/site';
+import { usd } from '@/lib/format';
 
 export const revalidate = 300;
 
@@ -51,16 +52,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       images: card.image_front ? [card.image_front] : ['/og-default.png'],
     },
   };
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
 }
 
 interface Params { slug: string }
@@ -203,10 +194,13 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
       {/* 3 KPIs */}
       <div className="mx-3 mt-3 grid grid-cols-3 gap-2">
         <KpiTile label="Times pulled" value={card.pulls_total.toLocaleString('en-US')} />
+        {/* Ownership, not location — every slab physically sits in MnStr's
+         * vault; in_vault tracks whether a player still owns the claim
+         * (holding pull or marketplace buy) vs sold it back to the protocol. */}
         <KpiTile
-          label="In vault"
+          label="Claimed"
           value={card.in_vault ? 'Yes' : 'No'}
-          delta={card.in_vault ? 'held' : 'sold-back'}
+          delta={card.in_vault ? 'player-held' : 'bought back'}
           deltaDown={!card.in_vault}
         />
         <KpiTile
@@ -226,7 +220,7 @@ export default async function CardDetailPage({ params }: { params: Promise<Param
         title="Recent history"
         right={`${activity.length} OF ${activityTotal.toLocaleString('en-US')}`}
       />
-      <CardHistoryLoadMore slug={card.slug} initialRows={activity} totalEvents={activityTotal} />
+      <CardHistoryLoadMore key={card.slug} slug={card.slug} initialRows={activity} totalEvents={activityTotal} />
 
       {/* Comparables */}
       {card.comparables.length > 0 && (

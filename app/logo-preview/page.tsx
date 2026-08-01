@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { MnstrWatch } from '@/components/MnstrWatch';
 import { Mono } from '@/components/primitives';
 
@@ -9,9 +10,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// Design tool, dev-only — 404s in production instead of shipping an internal
+// page on the public site.
+const DEV_ONLY = process.env.NODE_ENV === 'production';
+
 const SIZES = [28, 36, 48, 64, 96, 128, 192];
 
 export default function LogoPreview() {
+  if (DEV_ONLY) notFound();
   return (
     <div className="min-h-dvh" style={{ background: 'var(--bg)', color: 'var(--fg)', padding: 32 }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
@@ -24,16 +30,8 @@ export default function LogoPreview() {
         <p style={{ color: 'var(--fg-3)', maxWidth: '70ch', lineHeight: 1.55, marginBottom: 24 }}>
           Live render of the <code>&lt;MnstrWatch&gt;</code> component at the sizes used across the app, plus
           a row of the raw assets from <code>/public/</code> for direct comparison. The designer&apos;s
-          canonical reference (HTML lockup set with mascot slot) is at{' '}
-          <a
-            href="/logo-reference.html"
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: 'var(--accent)', textDecoration: 'underline' }}
-          >
-            /logo-reference.html
-          </a>
-          .
+          canonical reference (HTML lockup set with mascot slot) lives at{' '}
+          <code>design/logo-reference.html</code> (local-only, rsync-excluded).
         </p>
 
         <Section title="Foil (full color) — used in Foil theme top bar / side rail">

@@ -26,9 +26,11 @@ const VIEW_CHIPS = [
 const TIER_CHIPS = [
   { id: 'all'       as const, label: 'All tiers' },
   { id: 'Starter'   as const, label: 'Starter'   },
+  { id: 'Great'     as const, label: 'Great'     },
   { id: 'Premium'   as const, label: 'Monster'   },
   { id: 'Ultra'     as const, label: 'Ultra'     },
   { id: 'Adventure' as const, label: 'Adventure' },
+  { id: 'Outlaw'    as const, label: 'Outlaw'    },
 ];
 
 type Tier = (typeof TIER_CHIPS)[number]['id'];
@@ -37,7 +39,7 @@ function isView(v: unknown): v is CardView {
   return v === 'top' || v === 'most' || v === 'recent';
 }
 function isTier(v: unknown): v is Tier {
-  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
+  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure' || v === 'Great' || v === 'Outlaw';
 }
 
 function buildHref(opts: { view: CardView; tier: Tier; q?: string; page?: number }): string {
@@ -107,8 +109,11 @@ export default async function CardsPage({
         </div>
       )}
 
-      {!q && list.rows.length > 0 && (
+      {/* key: reset appended pages when any filter changes. Pagination stays
+       * available during search too — /api/cards supports q end-to-end. */}
+      {list.rows.length > 0 && (
         <CardsLoadMore
+          key={`${view}|${tier}|${q}`}
           view={view}
           tier={tier}
           q={q || undefined}

@@ -6,6 +6,7 @@ import { NavGlyph, SearchIcon, InfoIcon } from './Icons';
 import { Mono } from './primitives';
 import { NAV, type NavKey } from './NavLinks';
 import { MnstrWatch } from './MnstrWatch';
+import LiveChip from './LiveChip';
 
 const COLLAPSE_KEY = 'mnstr.sidebar.collapsed';
 
@@ -199,6 +200,8 @@ export default function FoilShell({
                 cursor: 'pointer',
               }}
               aria-label="Open search"
+              aria-keyshortcuts="Meta+K Control+K /"
+              title="Search — ⌘K / Ctrl+K, or /"
             >
               <SearchIcon />
               <Mono style={{ fontSize: 10.5, letterSpacing: '0.04em', color: 'var(--fg-3)' }}>
@@ -220,12 +223,10 @@ export default function FoilShell({
             </button>
 
             <div className="ml-auto flex items-center gap-2 md:ml-3">
-              {/* Mobile-only LIVE chip */}
-              <span className="md:hidden inline-flex items-center gap-1.5">
-                <span className="live-dot" />
-                <Mono style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.12em', marginRight: 4 }}>
-                  LIVE
-                </Mono>
+              {/* Mobile-only LIVE chip — health-driven, flips to STALE when
+               * the indexer heartbeat lags (see components/LiveChip.tsx). */}
+              <span className="md:hidden">
+                <LiveChip />
               </span>
 
               <IconButton onClick={onSearch} ariaLabel="Search" className="md:hidden">

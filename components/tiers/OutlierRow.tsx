@@ -6,10 +6,7 @@ import { useHoverImagePopover } from '../HoverImagePopover';
 import { cardImageUrl } from '@/lib/img';
 import CardThumb from '../CardThumb';
 import type { TierOutlier } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 4) + '…' + a.slice(-4);
-}
+import { shortAddr } from '@/lib/format';
 
 export default function OutlierRow({ outlier, first }: { outlier: TierOutlier; first?: boolean }) {
   const fmv = outlier.fmv_usd;

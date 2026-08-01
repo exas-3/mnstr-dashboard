@@ -41,16 +41,21 @@ interface EtherscanLog {
 
 const BASE = 'https://api.etherscan.io/v2/api';
 
+// Every outbound fetch carries an AbortSignal timeout: one black-holed
+// connection (no RST, no FIN) would otherwise wedge the reconcile cycle
+// indefinitely — fetch has no default timeout in Node.
+const FETCH_TIMEOUT_MS = 20_000;
+
 async function fetchJson<T>(url: string, attempt = 0): Promise<T> {
   await etherscanLimiter.take();
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) {
       if (attempt < 5) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         return fetchJson(url, attempt + 1);
       }
-      throw new Error(`HTTP ${res.status} for ${url}`);
+      throw new Error(`HTTP ${res.status} for ${url.replace(/apikey=[^&]+/, 'apikey=***')}`);
     }
     return (await res.json()) as T;
   } catch (e) {
@@ -160,84 +165,6 @@ async function fetchPage(
   url.searchParams.set('apikey', config.etherscanKey);
 
   return fetchPageWithRetry(url.toString());
-}
-
-/**
- * Fetch ERC-20 Transfer logs on `tokenAddress` where topic1 (from) OR topic2 (to)
- * matches `partyAddress`. Used for indexing USDm flows where one side is mnstr's
- * operator EOA — that's the central settlement point for pulls, sellbacks, and
- * marketplace activity. Returns the union of both legs.
- *
- * Etherscan v2 supports topicX + topicX_Y_opr operators, but we issue two
- * separate scans rather than one combined "topic1=A OR topic2=A" query because
- * Etherscan only supports AND-style combinations across topics, not OR.
- */
-async function fetchTransfersByParty(
-  tokenAddress: string,
-  partyAddress: string,
-  fromBlock: number,
-  toBlock: number,
-): Promise<EtherscanLog[]> {
-  const padded = '0x' + partyAddress.replace(/^0x/, '').toLowerCase().padStart(64, '0');
-  const [outgoing, incoming] = await Promise.all([
-    fetchTransferLogs(tokenAddress, { topic1: padded }, fromBlock, toBlock),
-    fetchTransferLogs(tokenAddress, { topic2: padded }, fromBlock, toBlock),
-  ]);
-  // Dedup by (tx_hash, log_index) in case a self-transfer (party→party)
-  // would appear in both legs. None expected in practice, but cheap to guard.
-  const seen = new Set<string>();
-  const out: EtherscanLog[] = [];
-  for (const l of [...outgoing, ...incoming]) {
-    const key = `${l.transactionHash}:${l.logIndex}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(l);
-  }
-  return out;
-}
-
-async function fetchTransferLogs(
-  address: string,
-  fixed: { topic1?: string; topic2?: string },
-  fromBlock: number,
-  toBlock: number,
-): Promise<EtherscanLog[]> {
-  const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-  const out: EtherscanLog[] = [];
-  let cursor = fromBlock;
-  while (cursor <= toBlock) {
-    const url = new URL(BASE);
-    url.searchParams.set('chainid', String(config.chainId));
-    url.searchParams.set('module', 'logs');
-    url.searchParams.set('action', 'getLogs');
-    url.searchParams.set('address', address);
-    url.searchParams.set('topic0', TRANSFER);
-    if (fixed.topic1) {
-      url.searchParams.set('topic1', fixed.topic1);
-      url.searchParams.set('topic0_1_opr', 'and');
-    }
-    if (fixed.topic2) {
-      url.searchParams.set('topic2', fixed.topic2);
-      url.searchParams.set('topic0_2_opr', 'and');
-    }
-    url.searchParams.set('fromBlock', String(cursor));
-    url.searchParams.set('toBlock', String(toBlock));
-    url.searchParams.set('page', '1');
-    url.searchParams.set('offset', '1000');
-    url.searchParams.set('apikey', config.etherscanKey);
-    const page = await fetchPageWithRetry(url.toString());
-    if (page.length === 0) break;
-    out.push(...page);
-    if (page.length < 1000) break;
-    const lastBlock = parseInt(page[page.length - 1].blockNumber, 16);
-    if (lastBlock === cursor) {
-      throw new Error(
-        `fetchTransferLogs: >=1000 logs in single block ${lastBlock}; tighten window`,
-      );
-    }
-    cursor = lastBlock;
-  }
-  return out;
 }
 
 async function fetchPageWithRetry(url: string, attempt = 0): Promise<EtherscanLog[]> {
@@ -387,13 +314,47 @@ export async function getMarketplacePriceUpdatedLogs(
 }
 
 export async function getLatestBlock(): Promise<number> {
-  const res = await fetch(config.alchemyRpc, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
-  });
-  const j = (await res.json()) as { result: string };
-  return parseInt(j.result, 16);
+  // Validate strictly and throw loudly. A NaN head here used to make every
+  // backfill's `while (cursor <= NaN)` loop exit instantly — the reconcile
+  // "succeeded" with 0 inserts while indexing nothing (e.g. when Alchemy
+  // answers with an error envelope or the plaintext quota message).
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+    try {
+      const res = await fetch(config.alchemyRpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      const body = await res.text();
+      if (!res.ok) {
+        lastErr = new Error(`eth_blockNumber HTTP ${res.status}: ${body.slice(0, 200)}`);
+        continue;
+      }
+      let j: { result?: unknown; error?: { code?: number; message?: string } };
+      try {
+        j = JSON.parse(body);
+      } catch {
+        // e.g. plaintext "Monthly capacity limit exceeded" — surface it verbatim.
+        lastErr = new Error(`eth_blockNumber non-JSON response: ${body.slice(0, 200)}`);
+        continue;
+      }
+      if (j.error) {
+        lastErr = new Error(`eth_blockNumber RPC error ${j.error.code}: ${j.error.message}`);
+        continue;
+      }
+      if (typeof j.result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(j.result)) {
+        lastErr = new Error(`eth_blockNumber bad result: ${JSON.stringify(j.result).slice(0, 200)}`);
+        continue;
+      }
+      return parseInt(j.result, 16);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 // --- USDm flow indexing (operator-centric, Alchemy RPC) ---
@@ -449,11 +410,22 @@ async function rpcGetLogs(
     }],
   };
   for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        // Wide-range backfill scans can legitimately take a while.
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) {
+      // Network error / timeout — retry like a non-ok response instead of
+      // escaping the retry loop.
+      if (attempt === 4) throw e;
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      continue;
+    }
     if (!res.ok) {
       await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
       continue;
@@ -487,6 +459,7 @@ async function fetchBlockTs(rpcUrl: string, blockNumber: number): Promise<number
       jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber',
       params: ['0x' + blockNumber.toString(16), false],
     }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const j = (await res.json()) as { result?: { timestamp: string } };
   const ts = parseInt(j.result?.timestamp ?? '0x0', 16);

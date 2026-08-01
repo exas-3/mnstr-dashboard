@@ -61,9 +61,11 @@ export async function getKpisFor(window: TimeWindowKey): Promise<Kpis> {
 export interface VelocityPoint {
   day: string;          // ISO date YYYY-MM-DD
   starter: number;
+  great: number;
   premium: number;
   ultra: number;
   adventure: number;
+  outlaw: number;
 }
 
 export type VelocityGranularity = 'day' | 'hour';
@@ -99,14 +101,67 @@ export async function getVelocityByTier(
       `;
   const byDay = new Map<string, VelocityPoint>();
   for (const r of rows) {
-    const cur = byDay.get(r.day) ?? { day: r.day, starter: 0, premium: 0, ultra: 0, adventure: 0 };
+    const cur = byDay.get(r.day) ?? { day: r.day, starter: 0, great: 0, premium: 0, ultra: 0, adventure: 0, outlaw: 0 };
     if (r.tier === 'Starter')        cur.starter = r.pulls;
+    else if (r.tier === 'Great')     cur.great = r.pulls;
     else if (r.tier === 'Premium')   cur.premium = r.pulls;
     else if (r.tier === 'Ultra')     cur.ultra = r.pulls;
     else if (r.tier === 'Adventure') cur.adventure = r.pulls;
+    else if (r.tier === 'Outlaw')    cur.outlaw = r.pulls;
     byDay.set(r.day, cur);
   }
   return [...byDay.values()];
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * House flow — operator-routed USDm per bucket, house perspective
+ * ───────────────────────────────────────────────────────────── */
+
+export interface HouseFlowPoint {
+  bucket: string;       // 'YYYY-MM-DD' daily or 'YYYY-MM-DD HH:00' hourly (UTC)
+  intakeUsd: number;    // player → operator/gacha/marketplace (house money IN)
+  payoutUsd: number;    // operator → player (house money OUT)
+  cumNetUsd: number;    // running intake − payouts across the span
+}
+
+/* Bucketed house cashflow from `usdm_flows` — the on-chain ground truth of
+ * operator-routed USDm. The table is wallet-centric (direction 'out' means
+ * the PLAYER paid the protocol), so from the house's side: intake = 'out',
+ * payouts = 'in'. Span/granularity mirror getVelocityByTier so the chart
+ * shares the Velocity chart's bucket grid. Cumulative net starts at zero at
+ * the window start — it's the window's running margin, not all-time. */
+export async function getHouseFlowSeries(
+  span = 30,
+  granularity: VelocityGranularity = 'day',
+): Promise<HouseFlowPoint[]> {
+  const rows = granularity === 'hour'
+    ? await sql<Array<{ bucket: string; intake: string; payout: string }>>`
+        SELECT
+          to_char(date_trunc('hour', ts), 'YYYY-MM-DD HH24:00')                AS bucket,
+          COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0)::text  AS intake,
+          COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'in'),  0)::text  AS payout
+        FROM usdm_flows
+        WHERE ts >= now() - (${span} || ' hours')::interval
+        GROUP BY 1
+        ORDER BY 1
+      `
+    : await sql<Array<{ bucket: string; intake: string; payout: string }>>`
+        SELECT
+          to_char(date_trunc('day', ts), 'YYYY-MM-DD')                         AS bucket,
+          COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'out'), 0)::text  AS intake,
+          COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'in'),  0)::text  AS payout
+        FROM usdm_flows
+        WHERE ts >= now() - (${span} || ' days')::interval
+        GROUP BY 1
+        ORDER BY 1
+      `;
+  let cum = 0;
+  return rows.map(r => {
+    const intakeUsd = Number(r.intake);
+    const payoutUsd = Number(r.payout);
+    cum += intakeUsd - payoutUsd;
+    return { bucket: r.bucket, intakeUsd, payoutUsd, cumNetUsd: cum };
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -117,14 +172,20 @@ export interface TierStats {
   tier: string;
   price: number;
   pulls: number;
-  evUsd: number;        // avg hypothetical payout per pull (fmv × tier-rate / pulls)
-  edge: number;         // 1 - hypothetical_payout/revenue (paper mode)
+  evUsd: number;        // avg hypothetical payout per VALUED pull (fmv × tier-rate)
+  edge: number;         // 1 - paper_payout / revenue, over VALUED pulls (paper mode)
 }
 
 /* Pulse TierStrip stats. Uses PAPER payouts (every pull's hypothetical
  * sell-back value at the current FMV) — not realised — so a tier where
  * players are still holding their cards doesn't show an artificially-high
- * house edge just because the liabilities haven't crystallised yet. */
+ * house edge just because the liabilities haven't crystallised yet.
+ *
+ * EV + edge are computed over VALUED pulls only (fmv_at_pull_usd NOT NULL),
+ * matching getTierEconomics. Including not-yet-enriched / permanently card-less
+ * pulls in the revenue denominator (while they contribute no payout) inflates
+ * the house edge toward 100% — which made a freshly-added, still-enriching tier
+ * read as ~−100% Player EV. `pulls` stays the full count for the volume bar. */
 export async function getTierStats(window: TimeWindowKey = 'all'): Promise<TierStats[]> {
   const windowWhere = window === 'all' ? sql`` : sql`WHERE pulled_at >= now() - ${intervalFor(window)}::interval`;
   return sql<TierStats[]>`
@@ -132,8 +193,10 @@ export async function getTierStats(window: TimeWindowKey = 'all'): Promise<TierS
       tier,
       MAX(price_usd)::float                                                            AS price,
       COUNT(*)::int                                                                    AS pulls,
-      (COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(COUNT(*), 0))                AS "evUsd",
-      (1 - COALESCE(SUM(paper_payout_usd), 0)::float / NULLIF(SUM(price_usd), 0))      AS edge
+      (COALESCE(SUM(paper_payout_usd), 0)::float
+         / NULLIF(COUNT(*) FILTER (WHERE fmv_at_pull_usd IS NOT NULL), 0))             AS "evUsd",
+      (1 - COALESCE(SUM(paper_payout_usd), 0)::float
+         / NULLIF(SUM(price_usd) FILTER (WHERE fmv_at_pull_usd IS NOT NULL), 0))       AS edge
     FROM pulls_enriched
     ${windowWhere}
     GROUP BY tier

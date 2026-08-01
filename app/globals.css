@@ -29,6 +29,8 @@
   --tier-amber:   var(--accent);
   --tier-magenta: var(--negative);
   --tier-cyan:    oklch(0.78 0.14 200);  /* Adventure (One Piece) */
+  --tier-green:   oklch(0.80 0.15 150);  /* Great (Pokemon) */
+  --tier-violet:  oklch(0.70 0.16 295);  /* Outlaw (One Piece) */
 
   /* Typography */
   --font-sans:    var(--font-geist-sans, ui-sans-serif, system-ui);
@@ -58,6 +60,8 @@
   --color-tier-amber:   var(--tier-amber);
   --color-tier-magenta: var(--tier-magenta);
   --color-tier-cyan:    var(--tier-cyan);
+  --color-tier-green:   var(--tier-green);
+  --color-tier-violet:  var(--tier-violet);
   --font-sans:    var(--font-sans);
   --font-mono:    var(--font-mono);
   --font-display: var(--font-display);

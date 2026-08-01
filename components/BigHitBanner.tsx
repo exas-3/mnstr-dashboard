@@ -51,7 +51,7 @@ export default function BigHitBanner({ pull }: { pull: BigHit }) {
       />
       <div className="min-w-0">
         <Mono style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.18em' }}>
-          ★ BIG HIT · {pull.ago}
+          ★ $1K+ PULL · {pull.ago}
         </Mono>
         <div
           className="line-clamp-2"

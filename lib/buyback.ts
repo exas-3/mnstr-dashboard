@@ -1,19 +1,14 @@
 /* Per-tier buyback rate (% of FMV the protocol pays out on a sell-back).
- * Mirrored in sql/006+ view definition + scripts/config.ts. */
+ * Canonical values live in lib/tiers.ts (SQL mirror: sql/021 + sql/022 CASE
+ * arms — tests/tiers.test.ts trips on drift). */
 
-export const BUYBACK_RATES: Record<string, number> = {
-  Starter:   0.87,
-  Premium:   0.91,
-  Ultra:     0.95,
-  Adventure: 0.90,
-};
+import { TIERS, buybackRateFor } from '@/lib/tiers';
 
-const DEFAULT_RATE = 0.85;
+export { buybackRateFor };
 
-export function buybackRateFor(tier: string | null | undefined): number {
-  if (!tier) return DEFAULT_RATE;
-  return BUYBACK_RATES[tier] ?? DEFAULT_RATE;
-}
+export const BUYBACK_RATES: Record<string, number> = Object.fromEntries(
+  TIERS.map(t => [t.tier, t.buybackRate]),
+);
 
 export type PremiumMode = 'buyback' | 'fmv';
 

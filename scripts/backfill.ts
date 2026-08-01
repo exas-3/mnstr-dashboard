@@ -1,9 +1,14 @@
 import { sql } from '../db/client.js';
 import { GACHA_CONTRACTS, type Tier } from './config.js';
 import { getPullLogs, getLatestBlock, type PlayAssignedLog } from './chain.js';
-import { setState } from '../db/client.js';
+import { setState, getState } from '../db/client.js';
 
 const CHUNK_BLOCKS = 50_000;
+// Re-scan a small window of recently-processed blocks each run. The WS listener
+// shares insertPullLogs, so pulls can land ahead of the reconcile cursor; the
+// overlap (plus the state-key checkpoint below) guarantees a WS gap is always
+// re-scanned. ON CONFLICT makes the re-scan free.
+const LOOKBACK_BLOCKS = 5_000;
 
 interface Contract {
   tier: Tier;
@@ -51,6 +56,14 @@ export async function insertPullLogs(c: Contract, logs: PlayAssignedLog[]): Prom
 }
 
 async function getCheckpoint(c: Contract): Promise<number> {
+  // Use the reconcile's own state key — NOT MAX(block_number) from pulls. The
+  // WS listener also inserts into pulls, so a MAX-based cursor would advance
+  // past any block range the WS missed during a reconnect and the gap would
+  // never be re-scanned (same pattern as sellbacks.ts).
+  const raw = await getState(`last_block_${c.tier.toLowerCase()}`);
+  if (raw) return Number(raw);
+  // No state key yet (pre-existing DB indexed before the key was read here):
+  // fall back to the old MAX-based cursor once; the key is written on this run.
   const rows = await sql<{ block_number: number }[]>`
     SELECT MAX(block_number)::int AS block_number FROM pulls WHERE tier = ${c.tier}
   `;
@@ -65,7 +78,7 @@ export async function backfillContract(
   const latest = headOverride ?? (await getLatestBlock());
   const start = opts.fromDeploy
     ? c.deployBlock
-    : (await getCheckpoint(c)) + 1;
+    : Math.max(c.deployBlock, (await getCheckpoint(c)) - LOOKBACK_BLOCKS + 1);
 
   if (start > latest) {
     console.log(`[backfill ${c.tier}] up to date (start=${start} > latest=${latest})`);

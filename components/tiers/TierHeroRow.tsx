@@ -2,14 +2,7 @@ import Link from 'next/link';
 import { Lbl, Mono } from '../primitives';
 import { CATEGORIES } from './tier-categories';
 import type { TierEconomics } from '@/lib/queries';
-
-function abbrUsd(n: number): string {
-  const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${Math.round(abs)}`;
-}
+import { abbrUsdStr } from '@/lib/format';
 
 export default function TierHeroRow({
   econs,
@@ -37,7 +30,7 @@ export default function TierHeroRow({
               {cat.tiers.length} {cat.tiers.length === 1 ? 'PACK' : 'PACKS'}
             </Mono>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             {cat.tiers.map((t, ti) => {
               const e = econs[t.key];
               if (!e) return null;
@@ -83,8 +76,8 @@ export default function TierHeroRow({
                     PLAYER EV
                   </Mono>
                   <div className="mt-4 grid grid-cols-3 gap-2" style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 10 }}>
-                    <Stat label="EV" value={abbrUsd(e.ev)} />
-                    <Stat label="VOLUME" value={abbrUsd(e.price * e.pulls)} />
+                    <Stat label="EV" value={abbrUsdStr(e.ev)} />
+                    <Stat label="VOLUME" value={abbrUsdStr(e.price * e.pulls)} />
                     <Stat label="SOLD" value={`${(e.sellbackRate * 100).toFixed(0)}%`} />
                   </div>
                 </Link>

@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { sql, setState } from '../db/client.js';
 import { backfillAll } from './backfill.js';
 import { backfillSellbacks } from './sellbacks.js';
 import { backfillRedemptions } from './redemptions.js';
@@ -7,7 +8,9 @@ import { backfillUsdmFlows, linkSellbacksOnchain } from './usdm-flows.js';
 import { getLatestBlock } from './chain.js';
 import { enrichPending, enrichRecentMissing, restatusHolding } from './enrich.js';
 import { refreshCardFmvs } from './fmv.js';
+import { checkPackDrift } from './drift.js';
 import { startWs } from './ws.js';
+import { notify } from './notify.js';
 
 export async function pollOnce(): Promise<void> {
   // Snapshot the head once and share it across all backfills so the sellback
@@ -29,6 +32,13 @@ export async function pollOnce(): Promise<void> {
   // Catch pulls whose card mnstr assigned after our fast-enrich raced ahead
   // (card_slug still NULL) without waiting for the 24h restatus pass.
   await enrichRecentMissing();
+  // wallet_pnl is a materialized view (sql/022) — its inputs (usdm_flows,
+  // enrichment) only move during this reconcile, so refresh once per cycle.
+  // CONCURRENTLY keeps readers unblocked. Non-fatal: a failed refresh only
+  // means P&L aggregates lag one cycle, not that indexing broke.
+  await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY wallet_pnl`.catch(e =>
+    console.warn('[poll] wallet_pnl refresh failed:', e instanceof Error ? e.message : e),
+  );
 }
 
 /* Indexer entrypoint. Topology:
@@ -48,12 +58,19 @@ export async function pollOnce(): Promise<void> {
  * usage vs the old 10s-poll loop. If the WS dies, the reconcile poll
  * is the safety net.
  */
+// Alert once after this many consecutive reconcile failures, then stay quiet
+// until a success re-arms it — so a quota stall produces one Telegram ping,
+// not one per 5-min cycle.
+const ALERT_AFTER_FAILURES = 3;
+
 export async function pollLoop(): Promise<void> {
   console.log('[boot] starting WS listener');
   startWs();
 
   console.log(`[poll] reconcile loop active, interval=${config.pollIntervalMs}ms`);
   let i = 0;
+  let consecutiveFailures = 0;
+  let alerted = false;
   while (true) {
     const t0 = Date.now();
     try {
@@ -61,14 +78,35 @@ export async function pollLoop(): Promise<void> {
       // Restatus holding pulls every ~12 reconciles (~1h at 5-min cadence).
       if (i % 12 === 0) {
         await restatusHolding(500);
+        // Same hourly cadence: warn if mnstr launched a gacha pack we don't
+        // index yet (new contract not in GACHA_CONTRACTS). Runs on the first
+        // iteration too (i=0) so a fresh boot flags drift immediately.
+        await checkPackDrift().catch(e =>
+          console.warn('[drift] check failed:', e instanceof Error ? e.message : e),
+        );
       }
       // Full per-card FMV refresh + history log every ~12 reconciles (~1h),
       // offset by 6 so it doesn't run in the same cycle as restatus.
       if (i % 12 === 6) {
         await refreshCardFmvs();
       }
+      // Heartbeat for /api/health: only a fully-successful reconcile counts.
+      // A quota-stalled poller (every call errors) stops advancing this, which
+      // is exactly what the health endpoint + UI staleness badge key off.
+      await setState('last_poll_ok', new Date().toISOString()).catch(() => {});
+      if (alerted) {
+        notify(`reconcile recovered after ${consecutiveFailures} failed cycle(s)`).catch(() => {});
+      }
+      consecutiveFailures = 0;
+      alerted = false;
     } catch (e) {
-      console.error('[poll] reconcile error:', e instanceof Error ? e.message : e);
+      const msg = e instanceof Error ? e.message : String(e);
+      consecutiveFailures++;
+      console.error(`[poll] reconcile error (${consecutiveFailures} consecutive):`, msg);
+      if (consecutiveFailures === ALERT_AFTER_FAILURES && !alerted) {
+        alerted = true;
+        notify(`poller failing: ${consecutiveFailures} consecutive reconcile errors. Last: ${msg.slice(0, 300)}`).catch(() => {});
+      }
     }
     const elapsed = Date.now() - t0;
     const wait = Math.max(0, config.pollIntervalMs - elapsed);

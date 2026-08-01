@@ -14,8 +14,9 @@ import LeaderboardRow from './LeaderboardRow';
 import PnlLadder from './PnlLadder';
 import EmptyState from '../EmptyState';
 import type { LadderRow, WalletRow, WalletSort } from '@/lib/queries';
+import { WALLETS_PAGE_SIZE } from '@/lib/constants';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = WALLETS_PAGE_SIZE;
 const MAX_ROWS = 500;
 
 export default function LeaderboardSection({
@@ -110,8 +111,9 @@ export default function LeaderboardSection({
           </div>
         )}
 
-        {/* Load more — disabled when we've hit MAX_ROWS or search is active. */}
-        {!q && remaining > 0 && (
+        {/* Load more — disabled when we've hit MAX_ROWS. Works during search
+         * too; loadMore already passes q through to /api/wallets. */}
+        {remaining > 0 && (
           <div className="px-4 pt-5 pb-2 text-center">
             <button
               type="button"
@@ -135,7 +137,7 @@ export default function LeaderboardSection({
         )}
 
         {/* Cap reached */}
-        {!q && remaining === 0 && rows.length >= MAX_ROWS && (
+        {remaining === 0 && rows.length >= MAX_ROWS && (
           <div className="px-4 pt-3 pb-2 text-center">
             <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)' }}>
               showing top {MAX_ROWS.toLocaleString('en-US')} of {initialTotal.toLocaleString('en-US')}

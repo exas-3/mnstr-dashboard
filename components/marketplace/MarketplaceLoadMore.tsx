@@ -5,8 +5,10 @@
  * exhausted. Matches the load-more pattern used on Wallet detail / Tiers
  * outliers / Card history pages. */
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import MarketplaceSaleRow from './MarketplaceSaleRow';
+import LoadMoreButton from '../LoadMoreButton';
+import { usePagedList } from '../usePagedList';
 import { Mono } from '../primitives';
 import type { MarketplaceSale } from '@/lib/queries';
 
@@ -17,41 +19,31 @@ const POLL_MS = 5 * 60 * 1000;
 // one fetch per window (trailing, so the last event still lands).
 const MIN_FETCH_GAP_MS = 3_000;
 
+const keyOf = (r: MarketplaceSale) => `${r.tx_hash}:${r.log_index}`;
+
 export default function MarketplaceLoadMore({
   initialRows,
   totalSales,
+  tier,
 }: {
   initialRows: MarketplaceSale[];
   totalSales: number;
+  /** Active tier filter — forwarded to /api/marketplace/sales. Call sites
+   * remount with key={tier} so `rows` resets when the filter changes. */
+  tier?: string;
 }) {
-  const [rows, setRows] = useState<MarketplaceSale[]>(initialRows);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { rows, setRows, remaining, nextBatch, loading, error, loadMore } =
+    usePagedList<MarketplaceSale>({
+      url: '/api/marketplace/sales',
+      params: { tier },
+      mode: 'offset',
+      pageSize: PAGE_SIZE,
+      initialRows,
+      total: totalSales,
+      keyOf,
+    });
 
-  const remaining = Math.max(0, totalSales - rows.length);
-  const nextBatch = Math.min(remaining, PAGE_SIZE);
-
-  async function loadMore() {
-    if (loading || remaining === 0) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/marketplace/sales?offset=${rows.length}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: MarketplaceSale[] };
-      setRows(prev => {
-        const seen = new Set(prev.map(r => `${r.tx_hash}:${r.log_index}`));
-        const fresh = data.rows.filter(r => !seen.has(`${r.tx_hash}:${r.log_index}`));
-        return [...prev, ...fresh];
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const tierQs = tier ? `&tier=${encodeURIComponent(tier)}` : '';
 
   // Fresh page-1 fetch — used by SSE pushes + the 5-min HTTP backstop to
   // prepend new sales onto the existing list without disturbing pagination.
@@ -65,13 +57,13 @@ export default function MarketplaceLoadMore({
       if (inFlight) return;
       inFlight = true;
       try {
-        const res = await fetch('/api/marketplace/sales?offset=0', { cache: 'no-store' });
+        const res = await fetch(`/api/marketplace/sales?offset=0${tierQs}`, { cache: 'no-store' });
         if (!res.ok) return;
         const data = (await res.json()) as { rows: MarketplaceSale[] };
         if (cancelled) return;
         setRows(prev => {
-          const seen = new Set(prev.map(r => `${r.tx_hash}:${r.log_index}`));
-          const fresh = data.rows.filter(r => !seen.has(`${r.tx_hash}:${r.log_index}`));
+          const seen = new Set(prev.map(keyOf));
+          const fresh = data.rows.filter(r => !seen.has(keyOf(r)));
           return fresh.length === 0 ? prev : [...fresh, ...prev];
         });
       } catch {
@@ -100,7 +92,7 @@ export default function MarketplaceLoadMore({
       es.removeEventListener('market', onMarket);
       es.close();
     };
-  }, []);
+  }, [tierQs, setRows]);
 
   return (
     <>
@@ -111,38 +103,18 @@ export default function MarketplaceLoadMore({
           </div>
         ) : (
           rows.map((sale, i) => (
-            <MarketplaceSaleRow key={`${sale.tx_hash}:${sale.log_index}`} sale={sale} first={i === 0} />
+            <MarketplaceSaleRow key={keyOf(sale)} sale={sale} first={i === 0} />
           ))
         )}
       </div>
 
-      {nextBatch > 0 && (
-        <div className="px-4 pt-3 pb-1 text-center">
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loading}
-            style={{
-              padding: '8px 16px',
-              color: loading ? 'var(--fg-4)' : 'var(--accent)',
-              border: `1px solid ${loading ? 'var(--line)' : 'color-mix(in oklch, var(--accent) 33%, transparent)'}`,
-              background: loading ? 'transparent' : 'color-mix(in oklch, var(--accent) 5%, transparent)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              letterSpacing: '0.14em',
-              cursor: loading ? 'wait' : 'pointer',
-            }}
-          >
-            {loading ? 'LOADING…' : `SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div className="px-4 pt-2 pb-1 text-center">
-          <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
-        </div>
-      )}
+      <LoadMoreButton
+        show={nextBatch > 0}
+        label={`SHOW ${nextBatch} MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+        loading={loading}
+        error={error}
+        onClick={loadMore}
+      />
     </>
   );
 }

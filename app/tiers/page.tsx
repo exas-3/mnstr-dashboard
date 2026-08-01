@@ -16,39 +16,22 @@ import SoldBackChart from '@/components/tiers/SoldBackChart';
 import EconGrid from '@/components/tiers/EconGrid';
 import TierOutliersLoadMore from '@/components/tiers/TierOutliersLoadMore';
 import type { TierEconomics } from '@/lib/queries';
+import { abbrUsdStr, usd } from '@/lib/format';
 
 export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: 'Tiers · Pack economics',
   description:
-    'Player expected value, sold-back rates, and FMV distribution for every MnStr pack tier — Starter, Monster, Ultra, Adventure.',
+    'Player expected value, sold-back rates, and FMV distribution for every MnStr pack tier — Starter, Great, Monster, Ultra, Adventure, Outlaw.',
   alternates: { canonical: '/tiers' },
 };
 
-const TIER_ORDER = ['Starter', 'Premium', 'Ultra', 'Adventure'] as const;
+const TIER_ORDER = ['Starter', 'Great', 'Premium', 'Ultra', 'Adventure', 'Outlaw'] as const;
 type TierName = (typeof TIER_ORDER)[number];
 
 function isTier(v: unknown): v is TierName {
-  return v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure';
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
-
-function abbrUsd(n: number): string {
-  const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${Math.round(abs)}`;
+  return v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure' || v === 'Great' || v === 'Outlaw';
 }
 
 interface Search { tier?: string; ev?: string }
@@ -72,7 +55,7 @@ export default async function TiersPage({
   // with quick sell-backs — both misleading reads of the protocol's edge.
   const mode = 'paper';
 
-  const [econ, dist, soldBackTrend, outliers, outliersTotal, econStarter, econPremium, econUltra, econAdventure] =
+  const [econ, dist, soldBackTrend, outliers, outliersTotal, econStarter, econGreat, econPremium, econUltra, econAdventure, econOutlaw] =
     await Promise.all([
       getTierEconomics(tier, mode, basis),
       getTierFMVDistribution(tier, basis),
@@ -80,16 +63,20 @@ export default async function TiersPage({
       getTierOutliers(tier, 5),
       getTierOutlierCount(tier),
       getTierEconomics('Starter', mode, basis),
+      getTierEconomics('Great', mode, basis),
       getTierEconomics('Premium', mode, basis),
       getTierEconomics('Ultra', mode, basis),
       getTierEconomics('Adventure', mode, basis),
+      getTierEconomics('Outlaw', mode, basis),
     ]);
 
   const econs: Record<string, TierEconomics> = {
     Starter: econStarter,
+    Great: econGreat,
     Premium: econPremium,
     Ultra: econUltra,
     Adventure: econAdventure,
+    Outlaw: econOutlaw,
   };
 
   return (
@@ -182,13 +169,13 @@ export default async function TiersPage({
       <SectionHead tag="BOOK" title="Pack economics" />
       <EconGrid
         items={[
-          { label: 'Cycled in',           value: abbrUsd(econ.revenue) },
-          { label: 'Vault FMV (holding)', value: abbrUsd(econ.vaultFmv) },
-          { label: 'Payouts (paper)',     value: abbrUsd(econ.payouts) },
+          { label: 'Cycled in',           value: abbrUsdStr(econ.revenue) },
+          { label: 'Vault FMV (holding)', value: abbrUsdStr(econ.vaultFmv) },
+          { label: 'Payouts (paper)',     value: abbrUsdStr(econ.payouts) },
           // Player P&L = -House P&L. Positive when players win on average.
           {
             label: 'Player P&L',
-            value: abbrUsd(-econ.pnlHouse),
+            value: abbrUsdStr(-econ.pnlHouse),
             tone: -econ.pnlHouse >= 0 ? 'pos' : 'neg',
           },
           {
@@ -212,7 +199,9 @@ export default async function TiersPage({
         title="Biggest pulls · FMV ≥ 2× pack price"
         right={`${outliers.length} OF ${outliersTotal.toLocaleString('en-US')}`}
       />
-      <TierOutliersLoadMore tier={tier} initialRows={outliers} totalOutliers={outliersTotal} />
+      {/* key: reset client row state when the tier changes (soft nav preserves
+       * component state, so the previous tier's rows would persist without it). */}
+      <TierOutliersLoadMore key={tier} tier={tier} initialRows={outliers} totalOutliers={outliersTotal} />
 
       {/* Caveat footer */}
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>

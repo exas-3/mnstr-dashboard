@@ -3,6 +3,7 @@ import Link from 'next/link';
 import {
   getKpisFor,
   getVelocityByTier,
+  getHouseFlowSeries,
   getTierStats,
   getTopHits,
   getTopHitsDeduped,
@@ -11,13 +12,16 @@ import {
   getLatestIndexedBlock,
   type TimeWindowKey,
 } from '@/lib/queries';
+import { getState } from '@/db/client';
 import { KpiTile, Mono, SectionHead } from '@/components/primitives';
 import VelocityChart from '@/components/VelocityChart';
+import HouseFlowChart from '@/components/pulse/HouseFlowChart';
 import TierStrip from '@/components/pulse/TierStrip';
 import LivePulse from '@/components/live/LivePulse';
 import BigHitsLoadMore from '@/components/pulse/BigHitsLoadMore';
 import BigHitBanner from '@/components/BigHitBanner';
 import { cardImageUrl } from '@/lib/img';
+import { abbrUsd, agoShort, shortAddr } from '@/lib/format';
 
 export const revalidate = 60;
 
@@ -48,37 +52,6 @@ const VELOCITY_SPAN: Record<TimeWindowKey, { span: number; granularity: 'day' | 
   all:   { span: 90, granularity: 'day'  },
 };
 
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
-
-function abbrUsd(n: number): { value: string; unit?: string } {
-  if (n >= 1_000_000) return { value: `$${(n / 1_000_000).toFixed(2)}`, unit: 'M' };
-  if (n >= 1_000)     return { value: `$${(n / 1_000).toFixed(1)}`,    unit: 'k' };
-  return { value: usd(n) };
-}
-
-function ago(iso: string): string {
-  const d = Date.now() - new Date(iso).getTime();
-  const s = Math.max(0, Math.round(d / 1000));
-  if (s < 60) return `${s}S AGO`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}M AGO`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}H AGO`;
-  return `${Math.round(h / 24)}D AGO`;
-}
-
-function shortAddr(a: string): string {
-  return a.slice(0, 4) + '…' + a.slice(-4);
-}
-
 interface Search { w?: string }
 
 export default async function PulsePage({
@@ -93,9 +66,11 @@ export default async function PulsePage({
     : params.w === '30d' ? '30d'
     : 'all';
 
-  const [kpis, velocity, tiers, topHits, topHitsDeduped, topHitsDedupedTotal, live, liveKpis, latestBlock] = await Promise.all([
+  const [kpis, velocity, houseFlow, tiers, topHits, topHitsDeduped, topHitsDedupedTotal, live, liveKpis, latestBlock, lastPollOk] = await Promise.all([
     getKpisFor(window),
     getVelocityByTier(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
+    // House-flow chart shares Velocity's bucket grid (same span/granularity).
+    getHouseFlowSeries(VELOCITY_SPAN[window].span, VELOCITY_SPAN[window].granularity),
     getTierStats(window),
     // Single-pull list — used by the BigHitBanner because it needs a specific
     // pulled_at timestamp ("14s ago") and a single puller.
@@ -111,6 +86,7 @@ export default async function PulsePage({
     getLiveFeed(30),
     getKpisFor('24h'),
     getLatestIndexedBlock(),
+    getState('last_poll_ok').catch(() => null),
   ]);
 
   const liveInitial = {
@@ -118,15 +94,23 @@ export default async function PulsePage({
     feed: live,
     latestBlock,
     serverNow: new Date().toISOString(),
+    lastPollOk,
   };
 
   const cycled = abbrUsd(kpis.usdmCycledUsd);
   const payouts = abbrUsd(kpis.payoutUsd);
 
-  // Big hit banner: latest top hit if ≥ $1k FMV and resolved (sold_back) or fresh
-  // Banner = the biggest pull-time FMV in the window (topHits is already ordered
-  // by fmv_at_pull_usd DESC), shown only if it cleared $1k at pull time.
-  const bigHit = topHits.find(h => Number(h.fmv_at_pull_usd ?? 0) >= 1000) ?? null;
+  // $1k+ pull banner = the biggest pull-time FMV in the window (topHits is
+  // already ordered by fmv_at_pull_usd DESC), shown only if it cleared $1k at
+  // pull time AND happened within the last 48h — on wide windows (30D/ALL)
+  // the top hit can be months old, and a stale pull flashing as breaking
+  // news on the landing page is dishonest.
+  const bigHitCandidate = topHits.find(h => Number(h.fmv_at_pull_usd ?? 0) >= 1000) ?? null;
+  const bigHit =
+    bigHitCandidate &&
+    Date.now() - new Date(bigHitCandidate.pulled_at).getTime() <= 48 * 3600 * 1000
+      ? bigHitCandidate
+      : null;
   const winLabel = WINDOWS.find(w => w.key === window)?.label ?? '24H';
 
   return (
@@ -134,7 +118,7 @@ export default async function PulsePage({
       {bigHit && (
         <BigHitBanner
           pull={{
-            ago: ago(bigHit.pulled_at),
+            ago: `${agoShort(bigHit.pulled_at).toUpperCase()} AGO`,
             title: bigHit.card_title ?? `Pull #${bigHit.request_id.slice(0, 6)}`,
             who: bigHit.username ? `@${bigHit.username}` : shortAddr(bigHit.wallet),
             tier: bigHit.tier.toUpperCase(),
@@ -215,6 +199,21 @@ export default async function PulsePage({
           );
         })()}
 
+        {/* House flow — operator-routed USDm cashflow from the house's side:
+         * intake bars up, payout bars down, cumulative net line on top.
+         * Same bucket grid as Velocity (VELOCITY_SPAN). */}
+        {(() => {
+          const { span, granularity } = VELOCITY_SPAN[window];
+          const unit = granularity === 'hour' ? 'H' : 'D';
+          const backdrop = window === 'all' ? 'ALL' : `${span}${unit}`;
+          return (
+            <>
+              <SectionHead tag="HOUSE FLOW" title="USDm intake vs payouts" right={`${backdrop} BACKDROP`} />
+              <HouseFlowChart data={houseFlow} span={span} granularity={granularity} />
+            </>
+          );
+        })()}
+
         {/* Tier strip */}
         <SectionHead tag="TIERS" title="Edge by tier" right={winLabel} />
         <TierStrip stats={tiers} />
@@ -224,6 +223,7 @@ export default async function PulsePage({
         <SectionHead
           tag="BIG HITS"
           title={`Top hits · ${winLabel}`}
+          right="FMV ≥ 2× PACK PRICE"
         />
         <BigHitsLoadMore
           // `key` so the component remounts when the window toggle changes —
@@ -251,6 +251,8 @@ export default async function PulsePage({
           † <span style={{ color: 'var(--fg-3)' }}>MnStr FMV</span> is the value the vault assigns each card.
           <br />
           † Cards are physical, not NFTs. Chain stores a payment receipt only.
+          <br />
+          † House flow counts operator-routed USDm only.
         </Mono>
       </div>
     </div>

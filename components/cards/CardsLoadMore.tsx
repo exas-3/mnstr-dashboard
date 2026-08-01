@@ -2,18 +2,18 @@
 
 /* Client-side progressive Load More for the /cards wall.
  *
- * Pattern mirrors components/wallets/WalletsLoadMore.tsx: server SSRs the
- * first page, this component appends additional pages by fetching /api/cards.
+ * Server SSRs the first page; this component appends additional pages by
+ * fetching /api/cards (see usePagedList for the shared mechanics).
  */
 
-import { useState } from 'react';
 import CardWallTile from './CardWallTile';
-import { Mono } from '../primitives';
+import LoadMoreButton from '../LoadMoreButton';
+import { usePagedList } from '../usePagedList';
 import type { CardListItem, CardView } from '@/lib/queries';
 
 const PAGE_SIZE = 24;
 
-type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
+type Tier = 'all' | 'Starter' | 'Premium' | 'Ultra' | 'Adventure' | 'Great' | 'Outlaw';
 
 export default function CardsLoadMore({
   view,
@@ -28,39 +28,19 @@ export default function CardsLoadMore({
   initialRemaining: number;
   initialPage: number;
 }) {
-  const [rows, setRows] = useState<CardListItem[]>([]);
-  const [remaining, setRemaining] = useState(initialRemaining);
-  const [page, setPage] = useState(initialPage);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function loadMore() {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      params.set('page', String(page + 1));
-      if (view !== 'top') params.set('view', view);
-      if (tier !== 'all') params.set('tier', tier);
-      if (q) params.set('q', q);
-      const res = await fetch(`/api/cards?${params.toString()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: CardListItem[]; total: number };
-      // Defensive dedupe — see WalletsLoadMore for rationale.
-      setRows(prev => {
-        const seen = new Set(prev.map(r => r.slug));
-        const fresh = data.rows.filter(r => !seen.has(r.slug));
-        return [...prev, ...fresh];
-      });
-      setPage(p => p + 1);
-      const shown = (initialPage + 1) * PAGE_SIZE + rows.length + data.rows.length;
-      setRemaining(Math.max(0, data.total - shown));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const { rows, remaining, loading, error, loadMore } = usePagedList<CardListItem>({
+    url: '/api/cards',
+    params: {
+      view: view !== 'top' ? view : undefined,
+      tier: tier !== 'all' ? tier : undefined,
+      q: q || undefined,
+    },
+    mode: 'page',
+    pageSize: PAGE_SIZE,
+    initialRemaining,
+    initialPage,
+    keyOf: c => c.slug,
+  });
 
   if (initialRemaining === 0 && rows.length === 0) return null;
 
@@ -74,34 +54,14 @@ export default function CardsLoadMore({
         </div>
       )}
 
-      {remaining > 0 && (
-        <div className="px-4 pt-5 pb-2 text-center">
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loading}
-            className="inline-block"
-            style={{
-              padding: '10px 18px',
-              color: loading ? 'var(--fg-4)' : 'var(--accent)',
-              border: `1px solid ${loading ? 'var(--line)' : 'color-mix(in oklch, var(--accent) 33%, transparent)'}`,
-              background: loading ? 'transparent' : 'color-mix(in oklch, var(--accent) 5%, transparent)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10.5,
-              letterSpacing: '0.14em',
-              cursor: loading ? 'wait' : 'pointer',
-            }}
-          >
-            {loading ? 'LOADING…' : `LOAD MORE · ${remaining.toLocaleString('en-US')} LEFT`}
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div className="px-4 pt-2 pb-2 text-center">
-          <Mono style={{ fontSize: 9.5, color: 'var(--negative)' }}>{error}</Mono>
-        </div>
-      )}
+      <LoadMoreButton
+        show={remaining > 0}
+        size="lg"
+        label={`LOAD MORE · ${remaining.toLocaleString('en-US')} LEFT`}
+        loading={loading}
+        error={error}
+        onClick={loadMore}
+      />
     </>
   );
 }

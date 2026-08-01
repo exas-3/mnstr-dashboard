@@ -1,10 +1,7 @@
 import Link from 'next/link';
 import { Identicon, Mono, Sparkline } from '../primitives';
 import type { WalletRow, WalletSort } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
+import { shortAddr } from '@/lib/format';
 
 /* Full-precision integer dollars with thousands separators ($10,642 / -$50).
  * Used for spend + net on the wallets leaderboard so scanning by value

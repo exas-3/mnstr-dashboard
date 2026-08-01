@@ -1,5 +1,8 @@
+import { cache } from 'react';
 import { sql } from '@/db/client';
 import { ttlCache, ttlRefresh } from './cache';
+import { escapeLike } from './shared';
+import { WALLETS_PAGE_SIZE } from '@/lib/constants';
 import type { HitRow } from './overview';
 
 /* ─────────────────────────────────────────────────────────────
@@ -86,7 +89,7 @@ export function getLeaderboard(
 // sorts/pages stay request-driven via ttlCache (≤ once per TTL). Started once
 // at server boot by instrumentation.ts; ttlRefresh coalesces so an overlapping
 // tick can't stack a second compute.
-const SSR_PAGE_SIZE = 25;
+const SSR_PAGE_SIZE = WALLETS_PAGE_SIZE;
 // The timer refreshes every LEADERBOARD_TTL_MS; store the timed entries with a
 // longer TTL so they never lapse between ticks — no request falls into a stale
 // window and triggers a second, off-cadence recompute. Exactly one compute per
@@ -126,8 +129,8 @@ async function computeLeaderboard(
 
   const ql = q?.trim().toLowerCase();
   const filterSql = ql
-    ? sql`HAVING LOWER(COALESCE(MAX(p.username), '')) LIKE ${'%' + ql + '%'}
-           OR LOWER(p.wallet) LIKE ${ql + '%'}`
+    ? sql`HAVING LOWER(COALESCE(MAX(p.username), '')) LIKE ${'%' + escapeLike(ql) + '%'}
+           OR LOWER(p.wallet) LIKE ${escapeLike(ql) + '%'}`
     : sql``;
 
   const rows = await sql<Array<{
@@ -266,8 +269,13 @@ async function pnlSparkForWallets(wallets: string[]): Promise<Map<string, number
              (COALESCE(fmv_usd, 0) - COALESCE(price_usd, 0))::float8 AS d
       FROM pulls_enriched WHERE wallet IN ${sql(wallets)}
       UNION ALL
+      -- Payout booked here ONLY when the sellback is linked on-chain — the
+      -- matched transfer is excluded from the cash branch below. When UNLINKED,
+      -- book 0 and let the real USDm-in flow through the cash branch instead
+      -- (same guard as getWalletPnlSeries; without it the payout counts twice).
       SELECT pe.wallet, COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)),
-             (COALESCE(pe.payout_usd, 0) - COALESCE(pe.fmv_usd, 0))::float8
+             ((CASE WHEN pe.payout_tx_hash IS NOT NULL THEN COALESCE(pe.payout_usd, 0) ELSE 0 END)
+               - COALESCE(pe.fmv_usd, 0))::float8
       FROM pulls_enriched pe
       LEFT JOIN usdm_flows pf ON pf.tx_hash = pe.payout_tx_hash AND pf.direction = 'in'
       WHERE pe.wallet IN ${sql(wallets)} AND pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
@@ -303,6 +311,62 @@ async function pnlSparkForWallets(wallets: string[]): Promise<Map<string, number
   const map = new Map<string, number[]>();
   for (const [w, arr] of full) map.set(w, downsampleSpark(arr));
   return map;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * Wallet search — the lightweight query behind /api/search.
+ *
+ * The overlay only needs (wallet, handle, net, spend, pulls); routing every
+ * keystroke through computeLeaderboard also ran the 4-branch P&L-spark UNION
+ * for rows whose sparks the search route then threw away, uncached (~1s per
+ * keystroke, public endpoint). This aggregates `pulls` directly (no
+ * pulls_enriched joins — status/payout aren't needed) against the wallet_pnl
+ * matview, and a short TTL collapses hammering on the same query.
+ * ───────────────────────────────────────────────────────────── */
+
+export interface WalletSearchRow {
+  wallet: string;
+  handle: string | null;
+  net: number;
+  spend: number;
+  pulls: number;
+}
+
+const SEARCH_TTL_MS = 10_000;
+
+export function searchWallets(q: string, limit: number): Promise<WalletSearchRow[]> {
+  const ql = q.trim().toLowerCase();
+  if (!ql) return Promise.resolve([]);
+  return ttlCache(`wsearch:${ql}:${limit}`, SEARCH_TTL_MS, async () => {
+    const rows = await sql<Array<{
+      wallet: string;
+      handle: string | null;
+      net: string;
+      spend: string;
+      pulls: number;
+    }>>`
+      SELECT
+        p.wallet,
+        MAX(p.username)                                    AS handle,
+        COALESCE(wp.total_net, -SUM(p.price_usd))::text    AS net,
+        COALESCE(wp.realized_out, SUM(p.price_usd))::text  AS spend,
+        COUNT(*)::int                                      AS pulls
+      FROM pulls p
+      LEFT JOIN wallet_pnl wp ON wp.wallet = p.wallet
+      GROUP BY p.wallet, wp.total_net, wp.realized_out
+      HAVING LOWER(COALESCE(MAX(p.username), '')) LIKE ${'%' + escapeLike(ql) + '%'}
+          OR p.wallet LIKE ${escapeLike(ql) + '%'}
+      ORDER BY COALESCE(wp.total_net, -SUM(p.price_usd)) DESC, p.wallet ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(r => ({
+      wallet: r.wallet,
+      handle: r.handle,
+      net: Number(r.net),
+      spend: Number(r.spend),
+      pulls: r.pulls,
+    }));
+  });
 }
 
 export function getLeaderboardKpis(): Promise<LeaderboardKpis> {
@@ -460,7 +524,13 @@ export async function getWalletRecentPulls(
   `;
 }
 
-export async function getWalletDetail(wallet: string): Promise<WalletDetail | null> {
+// React cache(): generateMetadata and the page body both call this per
+// render — without the wrap each ran the full detail aggregation (incl. the
+// global RANK() query) twice per request. cache() shares one execution per
+// request; raw postgres.js calls get no fetch()-style dedup from Next.
+export const getWalletDetail = cache(async function getWalletDetail(
+  wallet: string,
+): Promise<WalletDetail | null> {
   const addr = wallet.toLowerCase();
   // Aggregations split: pulls-side (pulls, vault_fmv, big_hits) come from
   // pulls_enriched. Realized cashflow (spend, payout, realized_net) +
@@ -557,7 +627,7 @@ export async function getWalletDetail(wallet: string): Promise<WalletDetail | nu
     collectionTotal: agg.pulls,
     recent,
   };
-}
+});
 
 /* ─────────────────────────────────────────────────────────────
  * Wallet P&L series — cumulative "portfolio net" over the wallet's
@@ -609,14 +679,22 @@ export async function getWalletPnlSeries(wallet: string): Promise<WalletPnlPoint
       AND NOT (pe.status = 'sold_back' AND pe.sold_at IS NOT NULL
                AND COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)) < pe.pulled_at + interval '1 hour')
     UNION ALL
-    -- Sellback: receive the payout, give the card back — booked at the payout
+    -- Sellback: give the card back, receive the payout — booked at the payout
     -- settlement time so the cash and the FMV-removal land together (no spike).
     -- Clamp away any bogus 1970 sold_at (a sellback can't precede its pull).
     -- A quick flip's pull was omitted above, so book the FULL round-trip here
     -- (payout − price); a held sell only books payout − fmv (its pull already
     -- booked fmv − price). Same <1h test as the pull branch's exclusion.
+    --
+    -- The payout term is booked here ONLY when the sellback is LINKED on-chain
+    -- (payout_tx_hash set) — that exact transfer is then excluded from the cash
+    -- branch below, so the payout counts once. When UNLINKED (e.g. the payout
+    -- settled outside the linker's block window), book 0 here and let the real
+    -- transfer flow through the cash branch instead. Otherwise the modeled payout
+    -- AND the real USDm-in both count, double-counting the payout — a big
+    -- sold-back card then reads as ~2× its value on the chart.
     SELECT COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at))::text,
-           (COALESCE(pe.payout_usd, 0)
+           ((CASE WHEN pe.payout_tx_hash IS NOT NULL THEN COALESCE(pe.payout_usd, 0) ELSE 0 END)
              - CASE WHEN COALESCE(pf.ts, GREATEST(pe.sold_at, pe.pulled_at)) < pe.pulled_at + interval '1 hour'
                     THEN COALESCE(pe.price_usd, 0)
                     ELSE COALESCE(pe.fmv_usd, 0) END)::float8,

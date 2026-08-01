@@ -19,7 +19,10 @@
     "leaderboard": "tsx scripts/index.ts leaderboard",
     "validate-sellbacks": "tsx scripts/validate-sellbacks.ts",
     "build-webp": "tsx scripts/build-webp.ts",
-    "db:migrate": "for f in sql/*.sql; do psql \"$DATABASE_URL\" -f \"$f\"; done",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "predeploy": "npm run typecheck && npm run test && npm run build",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:psql": "psql \"$DATABASE_URL\""
   },
   "dependencies": {
@@ -39,6 +42,7 @@
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "tsx": "^4.16.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.9"
   }
 }

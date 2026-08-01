@@ -9,8 +9,9 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: '*',
         allow: '/',
         // /api/ is server-only; /logo-preview is a designer reference page;
-        // ?embed= renders the chromeless OBS variant (duplicate content).
-        disallow: ['/api/', '/logo-preview', '/*?embed='],
+        // /embed/ is the chromeless OBS variant (duplicate content) — the
+        // ?embed= rule covers legacy links from the old query-param embed.
+        disallow: ['/api/', '/logo-preview', '/embed/', '/*?embed='],
       },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,

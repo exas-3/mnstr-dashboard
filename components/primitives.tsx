@@ -7,8 +7,10 @@
  * (letter-spacing, exact pixel sizes, gradients) that the design relies on. */
 
 import type { CSSProperties, ReactNode } from 'react';
+import type { Tier } from '@/lib/tiers';
 
-export type Tier = 'Starter' | 'Premium' | 'Ultra' | 'Adventure';
+/* Tier union derives from lib/tiers.ts TIERS — the single source of truth. */
+export type { Tier };
 export type Status = 'holding' | 'sold_back' | 'redeemed';
 
 /* MnStr labels the Premium tier as "Monster" in their UI. We keep "Premium"
@@ -130,6 +132,8 @@ const TIER_META: Record<Tier, { color: string; letter: string }> = {
   Premium:   { color: 'var(--accent)',       letter: 'M' },
   Ultra:     { color: 'var(--tier-magenta)', letter: 'U' },
   Adventure: { color: 'var(--tier-cyan)',    letter: 'A' },
+  Great:     { color: 'var(--tier-green)',   letter: 'G' },
+  Outlaw:    { color: 'var(--tier-violet)',  letter: 'O' },
 };
 
 export function TierTag({ tier, style }: { tier: Tier; style?: CSSProperties }) {

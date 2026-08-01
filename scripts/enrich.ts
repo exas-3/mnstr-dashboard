@@ -81,16 +81,21 @@ export async function enrichOne(
     // holdings to market). fmv_at_pull_usd = frozen at first enrich — the
     // protocol's buyback commitment at pull time, used by paper P&L so it
     // doesn't drift retroactively when MnStr re-prices a card.
+    // Every field COALESCEs against the existing row: a thin/racing API
+    // response (card not assigned yet → fmv 0/null, user missing) must never
+    // clobber a previously-good value. fmv_usd uses the same ≤0-is-unknown
+    // rule as the snapshot — wallet_pnl sums it, so a zeroed live appraisal
+    // would silently dent Net P&L until the next hourly refresh.
     await sql`
       UPDATE pulls SET
-        fmv_usd           = ${fmv},
+        fmv_usd           = COALESCE(${fmvForSnapshot}, pulls.fmv_usd),
         fmv_at_pull_usd   = COALESCE(pulls.fmv_at_pull_usd, ${fmvForSnapshot}),
-        payout_usd        = ${num(pull.payoutUsd)},
-        status            = ${pull.status ?? null},
-        card_slug         = ${cardSlug},
-        username          = ${pull.user?.username ?? null},
-        user_slug         = ${pull.user?.slug ?? null},
-        referral_code     = ${pull.user?.referralCode ?? null},
+        payout_usd        = COALESCE(${num(pull.payoutUsd)}, pulls.payout_usd),
+        status            = COALESCE(${pull.status ?? null}, pulls.status),
+        card_slug         = COALESCE(${cardSlug}, pulls.card_slug),
+        username          = COALESCE(${pull.user?.username ?? null}, pulls.username),
+        user_slug         = COALESCE(${pull.user?.slug ?? null}, pulls.user_slug),
+        referral_code     = COALESCE(${pull.user?.referralCode ?? null}, pulls.referral_code),
         price_usd         = COALESCE(${num(pull.priceUsd)}, pulls.price_usd),
         enriched_at       = now(),
         status_checked_at = now()
@@ -173,22 +178,28 @@ export async function enrichRecentMissing(withinHours = 6, limit = 500): Promise
 
 export async function restatusHolding(limit = 2000): Promise<void> {
   const cutoff = new Date(Date.now() - config.restatusAgeHours * 3600 * 1000);
-  // Re-check anything where (a) status is still pending OR (b) the fast-enrich
-  // raced and we got back an empty card payload (no slug or fmv=0). Once
-  // mnstr's backend assigns the card, a later restatus picks it up.
+  // Re-check only pulls that are actually INCOMPLETE: no card assigned yet, or
+  // the frozen snapshot never populated (fast-enrich raced mnstr's card
+  // assignment). Completeness is structural, NOT status-based — pulls.status
+  // is never populated (the /gacha/pulls/{id} endpoint doesn't return it; see
+  // enrichOne) and sold_back/holding is derived from the sellbacks join in
+  // pulls_enriched. The old status-based WHERE matched every pull ever
+  // indexed, so this loop re-polled the ENTIRE pull history against the MnStr
+  // API every restatusAgeHours, forever, and the set only grew. Sold-back
+  // pulls are terminal (their fmv no longer matters) and per-card current-FMV
+  // refresh is already handled hourly by refreshCardFmvs.
   const rows = await sql<{ request_id: string }[]>`
-    SELECT request_id::text AS request_id
-    FROM pulls
-    WHERE (
-        status IS NULL
-        OR status = ''
-        OR status = 'holding'
-        OR card_slug IS NULL
-        OR fmv_at_pull_usd IS NULL
-        OR fmv_at_pull_usd = 0
+    SELECT p.request_id::text AS request_id
+    FROM pulls p
+    LEFT JOIN sellbacks s ON s.request_id = p.request_id
+    WHERE s.request_id IS NULL
+      AND (
+        p.card_slug IS NULL
+        OR p.fmv_at_pull_usd IS NULL
+        OR p.fmv_at_pull_usd = 0
       )
-      AND (status_checked_at IS NULL OR status_checked_at < ${cutoff})
-    ORDER BY status_checked_at ASC NULLS FIRST
+      AND (p.status_checked_at IS NULL OR p.status_checked_at < ${cutoff})
+    ORDER BY p.status_checked_at ASC NULLS FIRST
     LIMIT ${limit}
   `;
   if (rows.length === 0) {

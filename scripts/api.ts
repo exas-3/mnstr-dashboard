@@ -56,7 +56,21 @@ const COMMON_HEADERS = {
 };
 
 async function get<T>(path: string, attempt = 0): Promise<T> {
-  const res = await fetch(`${config.mnstrApi}${path}`, { headers: COMMON_HEADERS });
+  let res: Response;
+  try {
+    res = await fetch(`${config.mnstrApi}${path}`, {
+      headers: COMMON_HEADERS,
+      // No default fetch timeout in Node — a black-holed connection would
+      // otherwise wedge the enrich pass indefinitely.
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    if (attempt < 3) {
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      return get(path, attempt + 1);
+    }
+    throw e;
+  }
   if (!res.ok) {
     // 400 and 404 are permanent client errors — surface them with prefixed messages
     // so callers can treat them as "row missing" rather than retrying forever.
@@ -104,6 +118,28 @@ export async function getStats(): Promise<{ packsOpened: number; players: number
 
 export async function getPrices(): Promise<Record<string, { price: string; priceUsd: string; tier: string; isPlayable: boolean }>> {
   const env = await get<Envelope<Record<string, { price: string; priceUsd: string; tier: string; isPlayable: boolean }>>>('/gacha/prices');
+  return env.data;
+}
+
+/* One entry from the public /packs catalog. MnStr deploys a separate
+ * OffchainGacha contract per pack, so `contractAddress` here is the canonical
+ * way to discover a newly-launched gacha. Only the fields we use are typed —
+ * the live payload also carries odds, images, rarity bands, etc. */
+export interface ApiPack {
+  id: number;
+  slug: string;
+  name: string;
+  category: string;
+  packType: string;          // 'gacha' for the rip-a-pack contracts
+  contractAddress: string;
+  priceUsd?: string;
+  buybackRatePct?: number;
+  enabled: boolean;
+  isPlayable: boolean;
+}
+
+export async function getPacks(): Promise<ApiPack[]> {
+  const env = await get<Envelope<ApiPack[]>>('/packs');
   return env.data;
 }
 

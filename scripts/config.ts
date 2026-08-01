@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { TIERS } from '../lib/tiers.js';
 
 function required(name: string): string {
   const v = process.env[name];
@@ -66,47 +67,15 @@ export function paymentFromTopic(_topic0: string): PaymentType {
   return 'usdm';
 }
 
-// OffchainGacha contracts on MegaETH (created by operator 0x61fccfc...)
-// (tier name, address, deployment block, entry price USDm, buyback rate).
+// OffchainGacha contracts on MegaETH (created by operator 0x61fccfc...).
 //
-// `buybackRate` is the % of FMV the vault pays out on sell-back. Source of
-// truth is the mnstr.xyz /packs API (`buybackRatePct`). Mirrored here AND
-// in sql/006_pulls_enriched_per_tier_buyback.sql — keep both in sync if
-// MnStr ever publishes a new rate.
-export const GACHA_CONTRACTS = [
-  {
-    tier: 'Starter',
-    address: '0xdea1d72f08d83e36946128603d4cd0a180a938a9',
-    deployBlock: 13_479_640,
-    priceUsd: 50,
-    buybackRate: 0.87,
-  },
-  {
-    tier: 'Premium',
-    address: '0x6a786932b1ca83e2343b85483101c5b820860ac4',
-    deployBlock: 13_479_705,
-    priceUsd: 250,
-    buybackRate: 0.91,
-  },
-  {
-    tier: 'Ultra',
-    address: '0xebb285b5cd4610d0f6dc538379a7027f02274ca2',
-    deployBlock: 13_479_710,
-    priceUsd: 1250,
-    buybackRate: 0.95,
-  },
-  {
-    // One Piece "Adventure" pack (https://mnstr.xyz/packs/one-piece-adventure/).
-    // Different IP than the Pokemon trio, same OffchainGacha contract pattern.
-    tier: 'Adventure',
-    address: '0x1472a250e3663a33a62142a8c68b6c3c611e47bf',
-    deployBlock: 16_747_858,
-    priceUsd: 150,
-    buybackRate: 0.90,
-  },
-] as const;
+// Canonical per-tier data (address, deploy block, entry price USDm, buyback
+// rate, UI labels) lives in lib/tiers.ts — the single source of truth for
+// the TS side. Re-exported under the historical name so every scripts/*
+// import keeps working unchanged. Add a new pack in lib/tiers.ts, not here.
+export const GACHA_CONTRACTS = TIERS;
 
-export type Tier = (typeof GACHA_CONTRACTS)[number]['tier'];
+export type { Tier } from '../lib/tiers.js';
 
 // Operator EOA — receives pack USDm, pays sell-backs.
 export const OPERATOR_EOA = '0x61fccfc0279b09c387608eff56fd9187e61d2874';

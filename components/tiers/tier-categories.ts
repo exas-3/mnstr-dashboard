@@ -1,7 +1,10 @@
 /* Group on-chain tiers by their IP / brand category for UI sectioning.
  *
- * Add a new IP here when MnStr ships another franchise (e.g. baseball cards,
- * Yu-Gi-Oh). The TierHeroRow + TierPicker render one section per category. */
+ * Derived from lib/tiers.ts — when MnStr ships another franchise (e.g.
+ * baseball cards, Yu-Gi-Oh), add the category + tiers there, not here.
+ * The TierHeroRow + TierPicker render one section per category. */
+
+import { TIER_CATEGORIES, TIERS_BY_DISPLAY } from '@/lib/tiers';
 
 export interface TierEntry {
   key: string;
@@ -16,26 +19,16 @@ export interface TierCategory {
   tiers: TierEntry[];
 }
 
-export const CATEGORIES: TierCategory[] = [
-  {
-    key: 'pokemon',
-    label: 'POKEMON',
-    color: 'var(--accent)',
-    tiers: [
-      { key: 'Starter', label: 'STARTER', priceLabel: '$50' },
-      { key: 'Premium', label: 'MONSTER', priceLabel: '$250' },
-      { key: 'Ultra',   label: 'ULTRA',   priceLabel: '$1,250' },
-    ],
-  },
-  {
-    key: 'one_piece',
-    label: 'ONE PIECE',
-    color: 'var(--tier-cyan)',
-    tiers: [
-      { key: 'Adventure', label: 'ADVENTURE', priceLabel: '$150' },
-    ],
-  },
-];
+export const CATEGORIES: TierCategory[] = TIER_CATEGORIES.map(cat => ({
+  key: cat.key,
+  label: cat.label,
+  color: cat.color,
+  tiers: TIERS_BY_DISPLAY.filter(t => t.category === cat.key).map(t => ({
+    key: t.tier,
+    label: t.label.toUpperCase(),
+    priceLabel: `$${t.priceUsd.toLocaleString('en-US')}`,
+  })),
+}));
 
 export function categoryFor(tierKey: string): TierCategory | undefined {
   return CATEGORIES.find(c => c.tiers.some(t => t.key === tierKey));

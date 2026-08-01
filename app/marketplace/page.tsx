@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
-import { getMarketplaceKpis, getMarketplaceSales } from '@/lib/queries';
-import { KpiTile, Mono, SectionHead } from '@/components/primitives';
+import { countMarketplaceSales, getMarketplaceKpis, getMarketplaceSales } from '@/lib/queries';
+import { KpiTile, Mono, SectionHead, tierLabel } from '@/components/primitives';
+import FilterChips from '@/components/cards/FilterChips';
 import MarketplaceLoadMore from '@/components/marketplace/MarketplaceLoadMore';
+import { abbrUsd } from '@/lib/format';
 
 export const revalidate = 60;
 
@@ -14,17 +16,46 @@ export const metadata: Metadata = {
 
 const INITIAL_PAGE = 20;
 
-function abbrUsd(n: number): { value: string; unit?: string } {
-  if (n >= 1_000_000) return { value: `$${(n / 1_000_000).toFixed(2)}`, unit: 'M' };
-  if (n >= 1_000)     return { value: `$${(n / 1_000).toFixed(1)}`,    unit: 'k' };
-  return { value: `$${Math.round(n).toLocaleString('en-US')}` };
+const TIER_CHIPS = [
+  { id: 'all'       as const, label: 'All tiers' },
+  { id: 'Starter'   as const, label: 'Starter'   },
+  { id: 'Great'     as const, label: 'Great'     },
+  { id: 'Premium'   as const, label: 'Monster'   },
+  { id: 'Ultra'     as const, label: 'Ultra'     },
+  { id: 'Adventure' as const, label: 'Adventure' },
+  { id: 'Outlaw'    as const, label: 'Outlaw'    },
+];
+
+type Tier = (typeof TIER_CHIPS)[number]['id'];
+
+function isTier(v: unknown): v is Tier {
+  return v === 'all' || v === 'Starter' || v === 'Premium' || v === 'Ultra' || v === 'Adventure' || v === 'Great' || v === 'Outlaw';
 }
 
-export default async function MarketplacePage() {
-  const [kpis, sales] = await Promise.all([
+function buildHref(tier: Tier): string {
+  return tier === 'all' ? '/marketplace' : `/marketplace?tier=${tier}`;
+}
+
+interface Search {
+  tier?: string;
+}
+
+export default async function MarketplacePage({
+  searchParams,
+}: {
+  searchParams: Promise<Search>;
+}) {
+  const params = await searchParams;
+  const tier: Tier = isTier(params.tier) ? params.tier : 'all';
+
+  // KPIs stay all-time; the tier chip only filters the ledger below. The
+  // filtered count keeps the "Show more" remaining number honest.
+  const [kpis, sales, filteredTotal] = await Promise.all([
     getMarketplaceKpis(),
-    getMarketplaceSales(0, INITIAL_PAGE),
+    getMarketplaceSales(0, INITIAL_PAGE, tier === 'all' ? null : tier),
+    tier === 'all' ? null : countMarketplaceSales(tier),
   ]);
+  const ledgerTotal = filteredTotal ?? kpis.sales;
 
   const volume = abbrUsd(kpis.volumeUsd);
   const avg = abbrUsd(kpis.avgUsd);
@@ -62,19 +93,27 @@ export default async function MarketplacePage() {
         <KpiTile label="Volume · 7d" value={volume7d.value} unit={volume7d.unit} />
       </div>
 
+      <FilterChips chips={TIER_CHIPS} value={tier} build={buildHref} />
+
       <SectionHead
         tag="LEDGER"
-        title="Recent sales"
-        right={`${sales.length} OF ${kpis.sales.toLocaleString('en-US')}`}
+        title={tier === 'all' ? 'Recent sales' : `Recent sales · ${tierLabel(tier)}`}
+        right={`${sales.length} OF ${ledgerTotal.toLocaleString('en-US')}`}
       />
-      <MarketplaceLoadMore initialRows={sales} totalSales={kpis.sales} />
+      {/* key: reset appended pages when the tier filter changes. */}
+      <MarketplaceLoadMore
+        key={tier}
+        initialRows={sales}
+        totalSales={ledgerTotal}
+        tier={tier === 'all' ? undefined : tier}
+      />
 
       {/* Caveat footer */}
       <div className="mt-6 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
           † Sales are <span style={{ color: 'var(--fg-3)' }}>CardBought</span> events on the marketplace contract. Each row = one slab changing hands; multiple resales of the same slab show as separate rows.
           <br />
-          † <span style={{ color: 'var(--fg-3)' }}>vs FMV</span> compares the sale price to the slab&apos;s most recent vault appraisal, not the FMV at sale time.
+          † <span style={{ color: 'var(--fg-3)' }}>vs buyback</span> compares the sale price to the slab&apos;s vault appraisal <span style={{ color: 'var(--fg-3)' }}>as of the sale</span> (hourly FMV snapshots) × the tier&apos;s buyback rate. <span style={{ color: 'var(--fg-3)' }}>≈</span> marks sales that predate snapshotting — approximated with the current FMV instead.
         </Mono>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { sql } from '@/db/client';
+import { buybackRateFor } from '@/lib/tiers';
 import { type TimeWindowKey, intervalFor, WINDOW_INTERVAL } from './shared';
 
 /* ─────────────────────────────────────────────────────────────
@@ -8,7 +9,7 @@ import { type TimeWindowKey, intervalFor, WINDOW_INTERVAL } from './shared';
  *               payouts = SUM(payout_usd) FILTER (status='sold_back')
  *   paper    = assume every pull eventually sells at fmv * buybackRate(tier).
  *               payouts = SUM(fmv * rate) over all pulls with fmv
- *               (Starter 0.87 · Premium 0.91 · Ultra 0.95 · Adventure 0.90)
+ *               (per-tier rates: lib/tiers.ts)
  *
  * edge = (revenue - payouts) / revenue
  * EV   = payouts / pulls
@@ -153,23 +154,15 @@ export interface FmvDistribution {
   outliers: Array<{ slug: string | null; title: string | null; fmv: number; username: string | null; wallet: string }>;
 }
 
-// Per-tier buyback rate. Mirrors sql/006 / sql/013 — kept in TS for cheap
-// arithmetic at query time (no view rebuild needed for the basis toggle).
-const TIER_BUYBACK_RATE: Record<string, number> = {
-  Starter:   0.87,
-  Premium:   0.91,
-  Ultra:     0.95,
-  Adventure: 0.90,
-};
-
 export async function getTierFMVDistribution(
   tier: string,
   basis: EvBasis = 'fmv',
 ): Promise<FmvDistribution> {
   // Multiplier applied to fmv_usd. 'fmv' = raw FMV (mnstr's displayed value).
-  // 'buyback' = fmv × per-tier rate — the cash a player would actually receive
-  // on sellback. Aligns the distribution with the EV basis toggle on /tiers.
-  const rate = basis === 'buyback' ? (TIER_BUYBACK_RATE[tier] ?? 0.85) : 1;
+  // 'buyback' = fmv × per-tier rate (lib/tiers.ts) — the cash a player would
+  // actually receive on sellback. Kept in TS for cheap arithmetic at query
+  // time (no view rebuild needed for the basis toggle on /tiers).
+  const rate = basis === 'buyback' ? buybackRateFor(tier) : 1;
 
   // Per-tier observed range: log10(min_value)..log10(max_value). Each tier
   // gets its own [low, high] so the bars use the full chart width instead

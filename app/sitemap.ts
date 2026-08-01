@@ -20,10 +20,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/privacy`, lastModified: now, changeFrequency: 'yearly',  priority: 0.2 },
   ];
 
-  const [cards, wallets] = await Promise.all([
-    getAllCardSlugs().catch(() => []),
-    getAllWalletAddrs().catch(() => []),
-  ]);
+  // A DB outage must not silently ship an empty sitemap that ISR then caches
+  // for an hour (deindexing risk) — throw instead, so Next keeps serving the
+  // last good copy, and log so the failure is at least observable.
+  const [cards, wallets] = await Promise.all([getAllCardSlugs(), getAllWalletAddrs()]).catch(e => {
+    console.error('[sitemap] entry queries failed:', e instanceof Error ? e.message : e);
+    throw e;
+  });
 
   const cardEntries: MetadataRoute.Sitemap = cards.map(c => ({
     url: `${SITE_URL}/cards/${c.id}`,

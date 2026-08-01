@@ -8,24 +8,11 @@ import { useHoverImagePopover } from '../HoverImagePopover';
 import { cardImageUrl } from '@/lib/img';
 import CardThumb from '../CardThumb';
 import type { WalletActivity } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 4) + '…' + a.slice(-4);
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
-
+import { shortAddr, usd } from '@/lib/format';
 
 /* One row in the wallet's interleaved activity feed.
  * - kind='pull'      — the wallet pulled a card from a pack
+ * - kind='sellback'  — the wallet sold a pulled card back to the protocol vault
  * - kind='sale_buy'  — the wallet bought a slab on the marketplace
  * - kind='sale_sell' — the wallet's previously-pulled slab was bought by someone else */
 export default function WalletActivityRow({
@@ -44,7 +31,9 @@ export default function WalletActivityRow({
   const amount =
     ev.kind === 'pull'
       ? (ev.fmv_usd != null ? `$${Math.round(ev.fmv_usd).toLocaleString('en-US')}` : '')
-      : `$${Math.round(ev.sale_price_usd).toLocaleString('en-US')}`;
+      : ev.kind === 'sellback'
+        ? `$${Math.round(ev.payout_usd).toLocaleString('en-US')}`
+        : `$${Math.round(ev.sale_price_usd).toLocaleString('en-US')}`;
   const { handlers, popover } = useHoverImagePopover({
     image: img,
     previewImage: preview,
@@ -69,17 +58,32 @@ export default function WalletActivityRow({
           className="truncate"
           style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--fg)' }}
         >
-          {title}
+          {/* Sellback rows carry an explorer <a> on the amount, so the whole
+           * row can't be a <Link> (nested anchors break SSR hydration) — the
+           * card link moves onto the title instead. */}
+          {ev.kind === 'sellback' && ev.card_slug ? (
+            <Link href={`/cards/${ev.card_slug}`} style={{ color: 'var(--fg)' }}>
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
         </div>
         <div className="mt-1 flex items-center gap-1.5">
           <Mono
             style={{
               fontSize: 9,
-              color: ev.kind === 'pull' ? 'var(--accent)' : ev.kind === 'sale_buy' ? 'var(--positive)' : 'var(--tier-magenta)',
+              color:
+                ev.kind === 'pull' ? 'var(--accent)'
+                : ev.kind === 'sellback' || ev.kind === 'sale_buy' ? 'var(--positive)'
+                : 'var(--tier-magenta)',
               letterSpacing: '0.14em',
             }}
           >
-            {ev.kind === 'pull' ? 'PULLED' : ev.kind === 'sale_buy' ? 'BOUGHT' : 'SOLD'}
+            {ev.kind === 'pull' ? 'PULLED'
+              : ev.kind === 'sellback' ? 'SOLD BACK'
+              : ev.kind === 'sale_buy' ? 'BOUGHT'
+              : 'SOLD'}
           </Mono>
           {/* Credit-paid pulls have price_usd = 0 (PlayAssigned amount = 0 for
            * the 'credit' payment type per scripts/config.ts). No USDm leaves
@@ -99,7 +103,7 @@ export default function WalletActivityRow({
               CREDIT
             </Mono>
           )}
-          {ev.kind !== 'pull' && (
+          {(ev.kind === 'sale_buy' || ev.kind === 'sale_sell') && (
             <Mono style={{ fontSize: 9, color: 'var(--fg-3)' }}>
               {ev.kind === 'sale_buy' ? 'from' : 'to'}{' '}
               {ev.counterparty_wallet
@@ -124,6 +128,25 @@ export default function WalletActivityRow({
               <StatusPill status={ev.status} />
             </div>
           </>
+        ) : ev.kind === 'sellback' ? (
+          // Realized payout — link straight to the settlement tx when the
+          // sellback was matched on-chain (mirrors CardActivityRow).
+          ev.payout_tx_hash ? (
+            <a
+              href={`https://mega.etherscan.io/tx/${ev.payout_tx_hash}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              title="View payout transaction on MegaETH explorer"
+            >
+              <Mono style={{ fontSize: 12, color: 'var(--positive)', display: 'block' }}>
+                +{usd(ev.payout_usd, ev.payout_usd < 100 ? 2 : 0)} ↗
+              </Mono>
+            </a>
+          ) : (
+            <Mono style={{ fontSize: 12, color: 'var(--positive)', display: 'block' }}>
+              +{usd(ev.payout_usd, ev.payout_usd < 100 ? 2 : 0)}
+            </Mono>
+          )
         ) : (
           <>
             <Mono
@@ -156,7 +179,9 @@ export default function WalletActivityRow({
     </div>
   );
 
-  if (ev.card_slug) {
+  // Sellback rows already contain anchors (title + payout tx), so they never
+  // get the whole-row <Link> wrapper.
+  if (ev.card_slug && ev.kind !== 'sellback') {
     return (
       <>
         <Link href={`/cards/${ev.card_slug}`} className="block">

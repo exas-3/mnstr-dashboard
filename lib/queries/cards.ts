@@ -1,4 +1,6 @@
+import { cache } from 'react';
 import { sql } from '@/db/client';
+import { escapeLike } from './shared';
 
 /* ─────────────────────────────────────────────────────────────
  * Cards — the wall + detail
@@ -41,7 +43,7 @@ const CARD_VIEW_ORDER: Record<CardView, string> = {
 
 export async function getCardsList(opts: {
   view: CardView;
-  tier?: 'Starter' | 'Premium' | 'Ultra' | 'Adventure' | 'all';
+  tier?: 'Starter' | 'Premium' | 'Ultra' | 'Adventure' | 'Great' | 'Outlaw' | 'all';
   q?: string;
   page: number;
   pageSize: number;
@@ -52,10 +54,10 @@ export async function getCardsList(opts: {
 
   const tierWhere = tier === 'all' ? sql`` : sql`AND p.tier = ${tier}`;
   const searchHaving = ql
-    ? sql`AND (LOWER(c.title) LIKE ${'%' + ql + '%'}
-              OR LOWER(COALESCE(c.card_set, '')) LIKE ${'%' + ql + '%'}
-              OR LOWER(COALESCE(c.serial_number, '')) LIKE ${ql + '%'}
-              OR LOWER(c.slug) LIKE ${'%' + ql + '%'})`
+    ? sql`AND (LOWER(c.title) LIKE ${'%' + escapeLike(ql) + '%'}
+              OR LOWER(COALESCE(c.card_set, '')) LIKE ${'%' + escapeLike(ql) + '%'}
+              OR LOWER(COALESCE(c.serial_number, '')) LIKE ${escapeLike(ql) + '%'}
+              OR LOWER(c.slug) LIKE ${'%' + escapeLike(ql) + '%'})`
     : sql``;
 
   const rows = await sql<Array<{
@@ -206,7 +208,11 @@ export async function getCardPullHistory(
   }));
 }
 
-export async function getCardDetail(slug: string): Promise<CardDetail | null> {
+// React cache(): shared execution between generateMetadata and the page body
+// (same rationale as getWalletDetail).
+export const getCardDetail = cache(async function getCardDetail(
+  slug: string,
+): Promise<CardDetail | null> {
   const [card] = await sql<Array<{
     slug: string;
     title: string | null;
@@ -288,7 +294,7 @@ export async function getCardDetail(slug: string): Promise<CardDetail | null> {
       pulls: c.pulls,
     })),
   };
-}
+});
 
 /* ─────────────────────────────────────────────────────────────
  * Vault stats — for the Cards "vault stats" strip

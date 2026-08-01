@@ -1,14 +1,18 @@
+import { TIERS_BY_DISPLAY } from '@/lib/tiers';
 import { Lbl, Mono } from '../primitives';
 
-/* Per-tier buyback rate reference. Source of truth lives in
- * sql/006_pulls_enriched_per_tier_buyback.sql — kept in sync there. */
-const ROWS: Array<{ tier: string; price: number; rate: number; color: string }> = [
-  { tier: 'Starter',   price:   50, rate: 0.87, color: 'var(--tier-blue)'    },
-  { tier: 'Premium',   price:  250, rate: 0.91, color: 'var(--accent)'       },
-  { tier: 'Ultra',     price: 1250, rate: 0.95, color: 'var(--tier-magenta)' },
-  { tier: 'Adventure', price:  150, rate: 0.90, color: 'var(--tier-cyan)'    },
-];
+/* Per-tier buyback rate reference, derived from lib/tiers.ts (SQL mirror in
+ * sql/021 + sql/022 — tests/tiers.test.ts trips on drift). */
+const ROWS: Array<{ tier: string; price: number; rate: number; color: string }> =
+  TIERS_BY_DISPLAY.map(t => ({
+    tier: t.tier,
+    price: t.priceUsd,
+    rate: t.buybackRate,
+    color: t.color,
+  }));
 
+/* Deliberately NOT lib/format's abbrUsdStr: pack prices need exact rendering
+ * ($1.25k, not the rounded $1.3k) in a rates reference table. */
 function abbrUsd(n: number): string {
   if (n >= 1_000) return `$${(n / 1_000).toFixed(n % 1_000 === 0 ? 1 : 2)}k`;
   return `$${n.toLocaleString('en-US')}`;

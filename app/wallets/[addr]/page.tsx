@@ -16,13 +16,14 @@ import {
   tierLabel,
 } from '@/components/primitives';
 import { BackIcon } from '@/components/Icons';
-import WalletPnlChart from '@/components/wallets/WalletPnlChart';
-import HeldFmvChart from '@/components/wallets/HeldFmvChart';
+import WalletPnlChart from '@/components/wallets/WalletPnlChart.lazy';
+import HeldFmvChart from '@/components/wallets/HeldFmvChart.lazy';
 import { getWalletHeldFmvSeries } from '@/lib/queries/held-fmv';
 import WalletRecentLoadMore from '@/components/wallets/WalletRecentLoadMore';
 import CollectionTile from '@/components/wallets/CollectionTile';
 import JsonLd from '@/components/JsonLd';
 import { SITE_URL } from '@/lib/site';
+import { abbrUsd, shortAddr, signedUsd, usd } from '@/lib/format';
 
 export const revalidate = 300;
 
@@ -32,7 +33,7 @@ export async function generateMetadata({ params }: { params: Promise<{ addr: str
   if (!wallet) {
     return { title: 'Wallet not found', robots: { index: false, follow: false } };
   }
-  const display = wallet.handle ? `@${wallet.handle}` : `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  const display = wallet.handle ? `@${wallet.handle}` : shortAddr(addr, 6);
   const sign = wallet.net >= 0 ? '+' : '';
   const netStr = `${sign}$${Math.round(wallet.net).toLocaleString('en-US')}`;
   const spendStr = `$${Math.round(wallet.spend).toLocaleString('en-US')}`;
@@ -62,29 +63,9 @@ const TIER_COLOR: Record<string, string> = {
   Premium:   'var(--accent)',
   Ultra:     'var(--tier-magenta)',
   Adventure: 'var(--tier-cyan)',
+  Great:     'var(--tier-green)',
+  Outlaw:    'var(--tier-violet)',
 };
-
-function shortAddr(a: string): string {
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
-
-function usd(n: number, frac = 0): string {
-  if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: frac,
-    minimumFractionDigits: frac,
-  });
-}
-
-function abbrUsd(n: number): { value: string; unit?: string; sign?: string } {
-  const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return { value: `${sign}$${(abs / 1_000_000).toFixed(2)}`, unit: 'M' };
-  if (abs >= 1_000)     return { value: `${sign}$${(abs / 1_000).toFixed(1)}`,    unit: 'k' };
-  return { value: `${sign}$${Math.round(abs)}` };
-}
 
 interface Params { addr: string }
 
@@ -103,7 +84,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
 
   if (!detail) return notFound();
 
-  const display = detail.handle ?? shortAddr(detail.wallet);
+  const display = detail.handle ?? shortAddr(detail.wallet, 6);
   const isPos = detail.net >= 0;
   const spend = abbrUsd(detail.spend);
   const payout = abbrUsd(detail.payout);
@@ -154,7 +135,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
               {display}
             </h1>
             <Mono style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>
-              {shortAddr(detail.wallet)}
+              {shortAddr(detail.wallet, 6)}
               {detail.rank > 0 && ` · rank #${detail.rank.toLocaleString('en-US')}`}
             </Mono>
           </div>
@@ -182,8 +163,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
               letterSpacing: '-0.01em',
             }}
           >
-            {isPos ? '+' : ''}
-            {usd(detail.net, 0)}
+            {signedUsd(detail.net, 0)}
           </Mono>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -196,7 +176,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
                 marginTop: 3,
               }}
             >
-              {detail.realizedNet >= 0 ? '+' : ''}{usd(detail.realizedNet, 0)}
+              {signedUsd(detail.realizedNet, 0)}
             </Mono>
           </div>
           <div>
@@ -218,6 +198,9 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
             </Mono>
           </div>
         </div>
+        <Mono style={{ fontSize: 9, color: 'var(--fg-4)', marginTop: 10, display: 'block' }}>
+          Net = Realized + Held · FMV. Held · buyback is what a sell-back-everything exit would pay — shown for reference, not counted.
+        </Mono>
       </div>
 
       {/* Net P&L over time / pulls */}
@@ -246,7 +229,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
               ))}
             </div>
             <div className="mt-2.5 grid grid-cols-3 gap-2">
-              {(['Starter', 'Premium', 'Ultra', 'Adventure'] as const).map(tn => {
+              {(['Starter', 'Great', 'Premium', 'Ultra', 'Adventure', 'Outlaw'] as const).map(tn => {
                 const m = detail.tierMix.find(t => t.tier === tn);
                 const c = TIER_COLOR[tn];
                 return (
@@ -297,6 +280,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<Par
         right={`${activity.length} OF ${activityTotal.toLocaleString('en-US')}`}
       />
       <WalletRecentLoadMore
+        key={detail.wallet}
         wallet={detail.wallet}
         initialRows={activity}
         totalEvents={activityTotal}

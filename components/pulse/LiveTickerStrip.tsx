@@ -1,21 +1,7 @@
 import Link from 'next/link';
 import { Mono, TierTag, type Tier } from '../primitives';
 import type { HitRow } from '@/lib/queries';
-
-function ago(iso: string): string {
-  const d = Date.now() - new Date(iso).getTime();
-  const s = Math.max(0, Math.round(d / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h`;
-  return `${Math.round(h / 24)}d`;
-}
-
-function shortAddr(a: string): string {
-  return a.slice(0, 4) + '…' + a.slice(-4);
-}
+import { agoShort, shortAddr } from '@/lib/format';
 
 function sub(row: HitRow): string {
   const payout = row.payout_usd ? Number(row.payout_usd) : null;
@@ -48,7 +34,7 @@ export default function LiveTickerStrip({ items }: { items: HitRow[] }) {
           >
             <div className="flex items-center gap-1.5">
               <Mono style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.1em' }}>
-                {ago(it.pulled_at)} ago
+                {agoShort(it.pulled_at)} ago
               </Mono>
               <TierTag tier={it.tier as Tier} style={{ marginLeft: 'auto', padding: '1px 4px', fontSize: 7.5 }} />
             </div>

@@ -4,6 +4,7 @@ import { KpiTile, Mono } from '@/components/primitives';
 import SortBar from '@/components/wallets/SortBar';
 import WalletSearchBar from '@/components/wallets/WalletSearchBar';
 import LeaderboardSection from '@/components/wallets/LeaderboardSection';
+import { WALLETS_PAGE_SIZE } from '@/lib/constants';
 
 export const revalidate = 60;
 
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/wallets' },
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = WALLETS_PAGE_SIZE;
 
 function isSort(v: unknown): v is WalletSort {
   return v === 'pnl' || v === 'spend' || v === 'pulls';
@@ -68,7 +69,9 @@ export default async function WalletsPage({
 
       <div className="mt-4 px-4 pt-4 pb-2" style={{ borderTop: '1px dashed var(--line-soft)' }}>
         <Mono style={{ fontSize: 9.5, color: 'var(--fg-4)', lineHeight: 1.7 }}>
-          † Net P&L = sold-back payouts − pack spend. Holding pulls aren&apos;t counted (use paper mode on Tiers for that).
+          † Net P&L = realized cash (USDm received from − paid to MnStr, on-chain) + current MnStr FMV of cards still held, incl. marketplace buys.
+          <br />
+          † Sell-back payouts use the actual on-chain transfer where linked; FMV × per-tier buyback rate only as fallback.
           <br />
           † Handle ↔ wallet from MnStr profile; public, voluntary.
           <br />

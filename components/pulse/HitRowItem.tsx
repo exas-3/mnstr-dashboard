@@ -4,10 +4,7 @@ import { cardImageUrl } from '@/lib/img';
 import CardThumb from '../CardThumb';
 import LocalTime from '../LocalTime';
 import type { HitRow } from '@/lib/queries';
-
-function shortAddr(a: string): string {
-  return a.slice(0, 4) + '…' + a.slice(-4);
-}
+import { shortAddr } from '@/lib/format';
 
 export default function HitRowItem({ hit, first }: { hit: HitRow; first?: boolean }) {
   const fmv = hit.fmv_usd ? Number(hit.fmv_usd) : 0;

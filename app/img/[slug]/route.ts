@@ -54,22 +54,31 @@ function writeCacheBestEffort(path: string, buf: Buffer): void {
     .catch(err => console.warn(`[img] cache write failed for ${path}:`, err?.message));
 }
 
-/* Acquire the master original: disk cache → DB lookup → cdn.mnstr.xyz fetch.
- * Returns the buffer, or a NextResponse to return verbatim (404 / 502). */
-async function getMaster(slug: string): Promise<Buffer | NextResponse> {
-  const masterPath = join(CACHE_DIR, `${slug}.jpg`);
-  const cached = await readCache(masterPath);
-  if (cached) return cached;
+/* In-flight coalescing: an SSE tick makes every connected client refetch the
+ * feed at once, so a new card's image arrives as a burst of identical
+ * requests. Without coalescing each one independently hit the CDN (master)
+ * and sharp (variant). Concurrent misses now await one shared promise per
+ * key; results are plain data (never a shared Response object — a Response
+ * body can only be consumed once). */
+type ImgResult =
+  | { buf: Buffer; contentType: string; vary: boolean }
+  | { errStatus: number; errBody: string };
 
+const masterInflight = new Map<string, Promise<Buffer | { errStatus: number; errBody: string }>>();
+const variantInflight = new Map<string, Promise<ImgResult>>();
+
+/* Fetch + cache the master original: DB lookup → cdn.mnstr.xyz. */
+async function fetchMaster(slug: string): Promise<Buffer | { errStatus: number; errBody: string }> {
+  const masterPath = join(CACHE_DIR, `${slug}.jpg`);
   const [row] = await sql<Array<{ image_front: string | null }>>`
     SELECT image_front FROM cards WHERE slug = ${slug} LIMIT 1
   `;
-  if (!row?.image_front) return new NextResponse('not found', { status: 404 });
+  if (!row?.image_front) return { errStatus: 404, errBody: 'not found' };
 
   const upstreamUrl = row.image_front;
   let buf: Buffer;
   try {
-    const res = await fetch(upstreamUrl, { cache: 'no-store' });
+    const res = await fetch(upstreamUrl, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
     if (!res.ok) {
       // 4xx = permanently gone (mnstr deleted/replaced the asset). Clear the
       // stale URL so the next render falls through to the placeholder pattern
@@ -79,15 +88,31 @@ async function getMaster(slug: string): Promise<Buffer | NextResponse> {
           .then(() => console.warn(`[img] cleared stale image_front for ${slug} (CDN ${res.status})`))
           .catch(err => console.warn(`[img] failed to clear stale URL for ${slug}:`, err?.message));
       }
-      return new NextResponse(`upstream ${res.status}`, { status: res.status === 404 ? 404 : 502 });
+      return { errStatus: res.status === 404 ? 404 : 502, errBody: `upstream ${res.status}` };
     }
     buf = Buffer.from(await res.arrayBuffer());
   } catch {
-    return new NextResponse('upstream failed', { status: 502 });
+    return { errStatus: 502, errBody: 'upstream failed' };
   }
 
   writeCacheBestEffort(masterPath, buf);
   return buf;
+}
+
+/* Acquire the master original: disk cache → coalesced fetch.
+ * Returns the buffer, or a NextResponse to return verbatim (404 / 502). */
+async function getMaster(slug: string): Promise<Buffer | NextResponse> {
+  const masterPath = join(CACHE_DIR, `${slug}.jpg`);
+  const cached = await readCache(masterPath);
+  if (cached) return cached;
+
+  let p = masterInflight.get(slug);
+  if (!p) {
+    p = fetchMaster(slug).finally(() => masterInflight.delete(slug));
+    masterInflight.set(slug, p);
+  }
+  const r = await p;
+  return Buffer.isBuffer(r) ? r : new NextResponse(r.errBody, { status: r.errStatus });
 }
 
 export async function GET(
@@ -117,8 +142,30 @@ export async function GET(
   const cachedVariant = await readCache(variantPath);
   if (cachedVariant) return imageResponse(cachedVariant, contentType, true);
 
+  const variantKey = `${slug}@${width}.${ext}`;
+  let vp = variantInflight.get(variantKey);
+  if (!vp) {
+    vp = produceVariant(slug, width, wantsWebp, contentType, variantPath).finally(() =>
+      variantInflight.delete(variantKey),
+    );
+    variantInflight.set(variantKey, vp);
+  }
+  const r = await vp;
+  if ('errStatus' in r) return new NextResponse(r.errBody, { status: r.errStatus });
+  return imageResponse(r.buf, r.contentType, r.vary);
+}
+
+async function produceVariant(
+  slug: string,
+  width: number,
+  wantsWebp: boolean,
+  contentType: string,
+  variantPath: string,
+): Promise<ImgResult> {
   const master = await getMaster(slug);
-  if (master instanceof NextResponse) return master;
+  if (master instanceof NextResponse) {
+    return { errStatus: master.status, errBody: await master.text().catch(() => '') };
+  }
 
   let out: Buffer;
   try {
@@ -128,9 +175,9 @@ export async function GET(
   } catch (err) {
     // sharp couldn't decode/encode — fall back to the original bytes.
     console.warn(`[img] resize failed for ${slug}@${width}:`, (err as Error)?.message);
-    return imageResponse(master, 'image/jpeg');
+    return { buf: master, contentType: 'image/jpeg', vary: false };
   }
 
   writeCacheBestEffort(variantPath, out);
-  return imageResponse(out, contentType, true);
+  return { buf: out, contentType, vary: true };
 }

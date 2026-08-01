@@ -51,8 +51,9 @@ function getHub(): Hub {
   if (globalThis.__mnstr_live_hub) return globalThis.__mnstr_live_hub;
   const emitter = new EventEmitter();
   // EventEmitter defaults to a 10-listener warning; each SSE client adds 2
-  // (pulls + market), so bump generously.
-  emitter.setMaxListeners(1000);
+  // (pulls + market). Keep the cap low enough that a listener leak would
+  // still surface as a warning in pm2 logs (~100 concurrent clients).
+  emitter.setMaxListeners(200);
   const ready = Promise.all([
     sql.listen('pulls_tick',  () => emitter.emit('pulls')),
     sql.listen('market_tick', () => emitter.emit('market')),
@@ -69,9 +70,15 @@ function getHub(): Hub {
   return hub;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const hub = getHub();
   await hub.ready;
+
+  // Teardown lives in GET() scope, NOT on the controller: ReadableStream
+  // invokes cancel() with `this` = the underlying-source literal, so anything
+  // stashed on the controller is unreachable there (that bug leaked one
+  // heartbeat interval + 2 emitter listeners per disconnected client).
+  let teardown: (() => void) | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -123,9 +130,8 @@ export async function GET() {
 
       const heartbeat = setInterval(() => send('ping'), HEARTBEAT_MS);
 
-      // Stash teardown on the controller so cancel() can find it. Next.js
-      // calls cancel() when the client disconnects.
-      (controller as unknown as { __teardown: () => void }).__teardown = () => {
+      teardown = () => {
+        if (closed) return;
         closed = true;
         clearInterval(heartbeat);
         timerCleanups.forEach(fn => fn());
@@ -133,12 +139,15 @@ export async function GET() {
         hub.emitter.off('market', onMarket);
       };
     },
-    cancel(reason) {
-      const teardown = (this as unknown as { __teardown?: () => void }).__teardown;
+    cancel() {
+      // Next.js calls cancel() when the client disconnects.
       teardown?.();
-      void reason;
     },
   });
+
+  // Belt and braces: Next reliably aborts the request signal on disconnect,
+  // including cases where stream cancel() is never invoked.
+  req.signal.addEventListener('abort', () => teardown?.());
 
   return new Response(stream, {
     headers: {

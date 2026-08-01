@@ -30,4 +30,10 @@ FROM (
   ) f ON TRUE
 ) match
 WHERE s.request_id = match.request_id
-  AND match.amount_usd IS NOT NULL;
+  AND match.amount_usd IS NOT NULL
+  -- Re-run guard: only fill gaps. linkSellbacksOnchain() (the greedy
+  -- one-to-one assignment that superseded this nearest-block heuristic —
+  -- see CLAUDE.md) owns already-linked rows; re-running this file must
+  -- never clobber its assignments back to the known-bad matching.
+  AND s.onchain_amount_usd IS NULL
+  AND s.payout_tx_hash IS NULL;

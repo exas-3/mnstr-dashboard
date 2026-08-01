@@ -27,6 +27,26 @@ const g = globalThis as typeof globalThis & {
 const store = (g.__mnstrCacheStore ??= new Map<string, Entry<unknown>>());
 const inflight = (g.__mnstrCacheInflight ??= new Map<string, Promise<unknown>>());
 
+// Bound the key space. Keys are partly request-derived (search q, page,
+// limit), so an unbounded map is a slow leak; evict the oldest-inserted
+// entries once past the cap (Map preserves insertion order — delete+set on
+// write keeps recently-written keys at the tail).
+const MAX_ENTRIES = 200;
+
+function evictIfNeeded(): void {
+  while (store.size > MAX_ENTRIES) {
+    const oldest = store.keys().next().value;
+    if (oldest === undefined) return;
+    store.delete(oldest);
+  }
+}
+
+function put<T>(key: string, value: T, ttlMs: number): void {
+  store.delete(key);
+  store.set(key, { value, expires: Date.now() + ttlMs, refreshing: false });
+  evictIfNeeded();
+}
+
 export async function ttlCache<T>(
   key: string,
   ttlMs: number,
@@ -41,16 +61,28 @@ export async function ttlCache<T>(
     if (!hit.refreshing) {
       hit.refreshing = true;
       fn()
-        .then(value => store.set(key, { value, expires: Date.now() + ttlMs, refreshing: false }))
+        .then(value => put(key, value, ttlMs))
         .catch(() => { hit.refreshing = false; }); // keep serving stale on error
     }
     return hit.value;
   }
 
-  // Cold: must compute (only once per key after a reload).
-  const value = await fn();
-  store.set(key, { value, expires: Date.now() + ttlMs, refreshing: false });
-  return value;
+  // Cold: compute once per key — concurrent cold callers coalesce onto the
+  // same in-flight promise instead of stampeding the DB (e.g. a burst of
+  // /api/live polls right after a reload).
+  const existing = inflight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const p = (async () => {
+    try {
+      const value = await fn();
+      put(key, value, ttlMs);
+      return value;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, p);
+  return p;
 }
 
 /* Force a recompute (ignoring any cached TTL), write it to the cache, and
@@ -69,7 +101,7 @@ export async function ttlRefresh<T>(
   const p = (async () => {
     try {
       const value = await fn();
-      store.set(key, { value, expires: Date.now() + ttlMs, refreshing: false });
+      put(key, value, ttlMs);
       return value;
     } finally {
       inflight.delete(key);
